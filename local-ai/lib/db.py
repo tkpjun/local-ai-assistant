@@ -44,3 +44,11 @@ def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_nam
     snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
     cursor.execute("INSERT OR REPLACE INTO dependencies (snippet_id, dependency_name) VALUES (?, ?)", (snippet_id, dependency_name))
     conn.commit()
+
+def get_all_snippets():
+    cursor.execute("SELECT id, source, content FROM snippets")
+    return cursor.fetchall()
+
+def get_all_dependencies():
+    cursor.execute("SELECT snippet_id, dependency_name FROM dependencies")
+    return cursor.fetchall()

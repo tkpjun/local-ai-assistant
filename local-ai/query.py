@@ -4,6 +4,7 @@ import gradio as gr
 import requests
 from langchain.vectorstores import Qdrant
 from qdrant_client import QdrantClient
+from lib.aggregating import get_dependencies
 
 from lib.ollama import OllamaEmbeddings
 import sqlite3
@@ -44,23 +45,14 @@ def stream_chat(history, user_message, file_reference, include_dependencies):
     history_cutoff = 10000
     prompt = ""
 
-    cursor.execute("SELECT content FROM snippets WHERE id = ?", (file_reference,))
-    snippet = cursor.fetchone()
-    prompt += f"Code file:\n{snippet[0]}\n"
-
     if include_dependencies:
-        # Fetch dependencies from the database
-        cursor.execute("SELECT dependency_id FROM dependencies WHERE snippet_id = ?", (file_reference,))
-        dependency_ids = cursor.fetchall()
-        print(file_reference)
-        print(dependency_ids)
-        if (dependency_ids):
-            cursor.execute("SELECT content FROM snippets WHERE id IN ?", (dependency_ids,))
-            dependencies = cursor.fetchall()
-            if dependencies:
-                prompt += "\nDependencies:\n\n"
-                for dependency in dependencies:
-                    prompt += f"- {dependency[0]}\n"
+        dependencies_cutoff = 10000
+        dependencies = get_dependencies(file_reference, dependencies_cutoff)
+        prompt += f"Code file with dependencies denoted in Markdown:\n{dependencies}\n"
+    else:
+        cursor.execute("SELECT content FROM snippets WHERE id = ?", (file_reference,))
+        snippet = cursor.fetchone()
+        prompt += f"Code file:\n{snippet[0]}\n"
 
     history_applied = 0
     history_index = -1

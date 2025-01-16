@@ -5,9 +5,7 @@ from langchain.schema import Document
 from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from lib.chunking import chunk_python_code
-from lib.chunking import chunk_react_code
-from lib.chunking import chunk_json_file
+from lib.chunking import chunk_python_code, chunk_react_code, chunk_json_file
 from lib.processing import process_imports, get_git_tracked_files
 
 from lib.ollama import OllamaEmbeddings

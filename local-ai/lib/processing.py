@@ -34,10 +34,14 @@ def process_imports(filepath, modulepath, identifier, full_content, snippet_cont
                 if match[0] and match[1]:  # from X import Y, Z
                     module_path = match[0]
                     imported_objects = [obj.strip() for obj in match[1].split(',')]
-                    all_imports[module_path] = imported_objects
+                    if module_path not in all_imports:
+                        all_imports[module_path] = []
+                    all_imports[module_path].extend(imported_objects)
                 elif match[2]:  # import X
                     module_name = match[2]
-                    all_imports[module_name] = [module_name]
+                    if module_name not in all_imports:
+                        all_imports[module_name] = []
+                    all_imports[module_name].append(module_name)
 
     # Determine which imports are used in the snippet
     relevant_imports = []
@@ -51,6 +55,9 @@ def process_imports(filepath, modulepath, identifier, full_content, snippet_cont
             for obj in objects:
                 if re.search(rf'\b{re.escape(obj)}\b', snippet_content):
                     relevant_imports.append(f"{module_path}.{obj}" if module_path != obj else module_path)
+
+    print(all_imports)
+    print(relevant_imports)
 
     # Insert dependencies into the database
     for imp in relevant_imports:
