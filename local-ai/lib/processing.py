@@ -1,5 +1,6 @@
 import re
 import subprocess
+from lib.db import upsert_dependency
 
 def get_git_tracked_files(root_dir):
     result = subprocess.run(
@@ -12,7 +13,7 @@ def get_git_tracked_files(root_dir):
     return result.stdout.splitlines()
 
 # Function to process imports and store dependencies
-def process_imports(cursor, filepath, modulepath, identifier, full_content, snippet_content):
+def process_imports(filepath, modulepath, identifier, full_content, snippet_content):
     # Detect imports at the beginning of the file (Python and JS/TS)
     regex = r'^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)'
     import_lines = re.findall(regex, full_content, re.MULTILINE)
@@ -53,7 +54,4 @@ def process_imports(cursor, filepath, modulepath, identifier, full_content, snip
 
     # Insert dependencies into the database
     for imp in relevant_imports:
-        if (identifier != ""):
-            cursor.execute("INSERT OR REPLACE INTO dependencies (snippet_id, dependency_name) VALUES (?, ?)", (modulepath + '.' + identifier, imp))
-        else:
-            cursor.execute("INSERT OR REPLACE INTO dependencies (snippet_id, dependency_name) VALUES (?, ?)", (modulepath, imp))
+        upsert_dependency(modulepath, identifier, imp)

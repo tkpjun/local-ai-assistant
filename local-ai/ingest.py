@@ -1,5 +1,4 @@
 
-import sqlite3
 import sys
 
 from langchain.schema import Document
@@ -12,35 +11,10 @@ from lib.chunking import chunk_json_file
 from lib.processing import process_imports, get_git_tracked_files
 
 from lib.ollama import OllamaEmbeddings
-
-# Connect to SQLite database (or create it if it doesn't exist)
-conn = sqlite3.connect("../codebase.db")
-cursor = conn.cursor()
+from lib.db import init_sqlite_tables, upsert_snippet
 
 # Create tables
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS snippets (
-    id TEXT PRIMARY KEY,
-    source TEXT,
-    module TEXT,
-    name TEXT,
-    content TEXT,
-    type TEXT
-)
-""")
-cursor.execute("DELETE FROM snippets")
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS dependencies (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    snippet_id TEXT,
-    dependency_name TEXT,
-    FOREIGN KEY (snippet_id) REFERENCES snippets (id)
-)
-""")
-cursor.execute("DELETE FROM dependencies")
-
-# Commit changes
-conn.commit()
+init_sqlite_tables()
 
 # TODO add more metadata
 #  - imports referenced in snippet (or maybe add to the snippet itself)
@@ -91,25 +65,17 @@ def ingest_codebase(directory, source_directory):
             continue
 
         print(modulepath)
-        cursor.execute("""
-                    INSERT OR REPLACE INTO snippets (id, source, module, content, type)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (modulepath, filepath, modulepath, text, "file"))
-        process_imports(cursor, filepath, modulepath, "", text, text)
+        upsert_snippet(modulepath, None, filepath, text, "file")
+        process_imports(filepath, modulepath, None, text, text)
 
         for identifier, content in chunks:
             # Insert snippet into the database
             print(modulepath + '.' + identifier)
-            cursor.execute("""
-                    INSERT OR REPLACE INTO snippets (id, source, module, name, content, type)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (modulepath + '.' + identifier, filepath, modulepath, identifier, content, "code"))
-            process_imports(cursor, filepath, modulepath, identifier, text, content)
+            upsert_snippet(modulepath, identifier, filepath, content, "code")
+            process_imports(filepath, modulepath, identifier, text, content)
             documents.append(Document(page_content=content, metadata={"source": filepath, "identifier": identifier}))
         # Add the documents to your vector store
         vectorstore.add_documents(documents)
-
-    conn.commit()
     #cursor.execute("SELECT * FROM dependencies")
     #print(cursor.fetchall())
 

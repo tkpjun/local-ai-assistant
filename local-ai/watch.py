@@ -1,7 +1,4 @@
 import os
-import re
-import json
-import sqlite3
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
@@ -9,13 +6,11 @@ from lib.chunking import chunk_python_code
 from lib.chunking import chunk_react_code
 from lib.chunking import chunk_json_file
 from lib.processing import process_imports, get_git_tracked_files
-
-# Connect to SQLite database
-conn = sqlite3.connect("../codebase.db", check_same_thread=False)
-cursor = conn.cursor()
+from lib.db import upsert_snippet
 
 directory = sys.argv[1]
 filepaths = get_git_tracked_files(directory)
+source_directory = sys.argv[2]
 
 # Function to process code snippets
 def process_file(filepath):
@@ -31,6 +26,16 @@ def process_file(filepath):
     except:
         print('Failed to read file')
         return
+
+    local_file_path = filepath.removeprefix(f"{directory}/")
+    modulepath = (local_file_path
+                  .removeprefix(f"{source_directory}/")
+                  .replace("/", ".")
+                  .removesuffix(".py")
+                  .removesuffix(".ts")
+                  .removesuffix(".tsx")
+                  .removesuffix(".js"))
+
     chunks = []
 
     if filepath.endswith(".py"):
@@ -42,20 +47,14 @@ def process_file(filepath):
     else:
         return
 
-    cursor.execute("""
-                    INSERT OR REPLACE INTO snippets (id, source, content, type)
-                    VALUES (?, ?, ?, ?)
-                """, (filepath, filepath, text, "file"))
-    process_imports(cursor, filepath, "", text, text)
+    print(modulepath)
+    upsert_snippet(modulepath, None, filepath, text, "file")
+    process_imports(filepath, modulepath, None, text, text)
 
     for identifier, content in chunks:
-        cursor.execute("""
-                    INSERT OR REPLACE INTO snippets (id, source, name, content, type)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (filepath + ':' + identifier, filepath, identifier, content, "code"))
-        process_imports(cursor, filepath, identifier, text, content)
-
-    conn.commit()
+        print(modulepath + '.' + identifier)
+        upsert_snippet(modulepath, identifier, filepath, content, "code")
+        process_imports(filepath, modulepath, identifier, text, content)
 
 # File system event handler
 class CodebaseEventHandler(FileSystemEventHandler):
@@ -68,7 +67,7 @@ class CodebaseEventHandler(FileSystemEventHandler):
             process_file(event.src_path)
 
 # Start the file watcher
-def start_watcher(directory):
+def start_watcher():
     event_handler = CodebaseEventHandler()
     observer = Observer()
     observer.schedule(event_handler, path=directory, recursive=True)
@@ -83,4 +82,4 @@ def start_watcher(directory):
     observer.join()
 
 # Start the watcher
-start_watcher(directory)
+start_watcher()
