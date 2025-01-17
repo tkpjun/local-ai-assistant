@@ -4,7 +4,7 @@ import gradio as gr
 import requests
 from langchain.vectorstores import Qdrant
 from qdrant_client import QdrantClient
-from lib.aggregating import get_dependencies
+from lib.aggregating import get_dependencies, snippet_to_prompt
 
 from lib.embeddings import OllamaEmbeddings
 import sqlite3
@@ -40,19 +40,30 @@ def fetch_context_from_vector_store(search_context: str, context_cutoff: int):
             relevant_docs = basic_retriever.invoke(context_batch)
     return context
 
-def stream_chat(history, user_message, file_reference, include_dependencies):
+def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2):
     history = history or []  # Ensure history is not None
     history_cutoff = 10000
     prompt = ""
 
-    if include_dependencies:
+    if include_dependencies or include_dependencies_2:
         dependencies_cutoff = 10000
-        dependencies = get_dependencies(file_reference, dependencies_cutoff)
-        prompt += f"Code file with dependencies denoted in Markdown:\n{dependencies}\n"
-    elif file_reference is not None:
-        cursor.execute("SELECT content FROM snippets WHERE id = ?", (file_reference,))
+        dependencies = []
+        if include_dependencies:
+            dependencies += get_dependencies(file_reference, dependencies_cutoff)
+        if include_dependencies_2:
+            dependencies += get_dependencies(file_reference_2, dependencies_cutoff)
+        dependencies = list(dict.fromkeys(dependencies))
+        prompt += f"Code file with dependencies denoted in Markdown:\n{"".join(dependencies)}\n"
+    if file_reference is not None:
+        cursor.execute("SELECT source, content FROM snippets WHERE id = ?", (file_reference,))
         snippet = cursor.fetchone()
-        prompt += f"Code file:\n{snippet[0]}\n"
+        prompt += snippet_to_prompt(snippet[0], snippet[1])
+    if file_reference_2 is not None:
+        cursor.execute("SELECT source, content FROM snippets WHERE id = ?", (file_reference_2,))
+        snippet = cursor.fetchone()
+        prompt += snippet_to_prompt(snippet[0], snippet[1])
+
+    print(prompt)
 
     history_applied = 0
     history_index = -1
@@ -99,12 +110,17 @@ with gr.Blocks() as chat_interface:
 
     # Chatbot component
     chatbot = gr.Chatbot(elem_id="chatbot")
-    file_reference = gr.Dropdown(label="Select File Path", choices=file_paths, value=None)
-    include_dependencies = gr.Checkbox(label="Include Dependencies", value=False)
+    with gr.Row():
+        with gr.Column():  # Note the parentheses here
+            file_reference = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
+            include_dependencies = gr.Checkbox(label="Include Dependencies", value=False)
+        with gr.Column():  # Note the parentheses here
+            file_reference_2 = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
+            include_dependencies_2 = gr.Checkbox(label="Include Dependencies", value=False)
     user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
 
     # Handle user input and display the streaming response
-    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies], outputs=chatbot)
+    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies, file_reference_2, include_dependencies_2], outputs=chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()

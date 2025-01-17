@@ -55,10 +55,13 @@ def get_dependencies(identifier: str, context_limit: int):
     result_order.reverse()
 
     # Collect snippets based on the resolved order
-    result = ""
+    result = []
     context_left = context_limit  # Assuming a large enough limit
 
     for snippet_id in result_order:
+        if snippet_id == identifier:
+            continue
+
         if snippet_id not in snippets:
             continue
 
@@ -68,7 +71,10 @@ def get_dependencies(identifier: str, context_limit: int):
         if context_left <= len(current_desc):
             break
 
-        result += current_desc
+        result.append(current_desc)
         context_left -= len(current_desc)
 
     return result
+
+def snippet_to_prompt(source, content):
+    return f"# {source}:\n```\n{content}\n```\n\n"
