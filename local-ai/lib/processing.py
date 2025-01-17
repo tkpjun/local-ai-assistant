@@ -1,6 +1,7 @@
 import re
 import subprocess
 from lib.db import upsert_dependency
+from lib.log import log
 
 def get_git_tracked_files(root_dir):
     result = subprocess.run(
@@ -56,8 +57,8 @@ def process_imports(filepath, modulepath, identifier, full_content, snippet_cont
                 if re.search(rf'\b{re.escape(obj)}\b', snippet_content):
                     relevant_imports.append(f"{module_path}.{obj}" if module_path != obj else module_path)
 
-    print(all_imports)
-    print(relevant_imports)
+    log.debug(all_imports)
+    log.debug(relevant_imports)
 
     # Insert dependencies into the database
     for imp in relevant_imports:

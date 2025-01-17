@@ -6,7 +6,7 @@ from langchain.vectorstores import Qdrant
 from qdrant_client import QdrantClient
 from lib.aggregating import get_dependencies
 
-from lib.ollama import OllamaEmbeddings
+from lib.embeddings import OllamaEmbeddings
 import sqlite3
 
 # Connect to SQLite database (or create it if it doesn't exist)
@@ -49,7 +49,7 @@ def stream_chat(history, user_message, file_reference, include_dependencies):
         dependencies_cutoff = 10000
         dependencies = get_dependencies(file_reference, dependencies_cutoff)
         prompt += f"Code file with dependencies denoted in Markdown:\n{dependencies}\n"
-    else:
+    elif file_reference is not None:
         cursor.execute("SELECT content FROM snippets WHERE id = ?", (file_reference,))
         snippet = cursor.fetchone()
         prompt += f"Code file:\n{snippet[0]}\n"

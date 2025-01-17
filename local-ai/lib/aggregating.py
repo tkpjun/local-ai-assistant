@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from lib.db import get_all_snippets, get_all_dependencies
+from lib.log import log
 
 
 # Function to recursively unroll dependencies
@@ -29,7 +30,7 @@ def get_dependencies(identifier: str, context_limit: int):
 
     # Ensure the requested identifier is included
     if identifier not in order:
-        print(f"Warning: Snippet with ID {identifier} does not exist or has no valid dependencies.")
+        log.warn(f"Snippet with ID {identifier} does not exist or has no valid dependencies.")
         return ""
 
     # Filter and collect snippets starting from the required snippet

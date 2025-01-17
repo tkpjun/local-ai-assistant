@@ -2,20 +2,32 @@ import json
 import re
 
 def chunk_python_code(text):
-    # Regex to match function and class definitions
-    pattern = r"(\bdef\s+\w+\(.*?\):|\bclass\s+\w+\(?.*?\)?:)"
-    matches = [m.start() for m in re.finditer(pattern, text)]
-
+    lines = text.splitlines()
     chunks = []
-    for i, start in enumerate(matches):
-        end = matches[i + 1] if i + 1 < len(matches) else len(text)
-        chunk = text[start:end].strip()
+    current_chunk = []
 
-        # Extract identifier (class or function name)
-        identifier_match = re.search(r"(class|def)\s+(\w+)", chunk)
-        identifier = identifier_match.group(2) if identifier_match else None
+    for line in lines:
+        # Check for lines with zero indentation (new top-level block)
+        if line.strip() and not line.startswith(" "):  # Indentation level 0
+            if current_chunk:  # If a chunk is being built, process it
+                # Process the previous chunk
+                chunk_text = "\n".join(current_chunk).strip()
+                if chunk_text.startswith(("class ", "def ")):  # Only keep class/def
+                    # Extract identifier
+                    match = re.match(r"(class|def)\s+(\w+)", chunk_text)
+                    identifier = match.group(2) if match else None
+                    chunks.append((identifier, chunk_text))
+                current_chunk = []  # Reset for the new chunk
 
-        chunks.append((identifier, chunk))
+        current_chunk.append(line)  # Add line to the current chunk
+
+    # Process the last chunk if it exists
+    if current_chunk:
+        chunk_text = "\n".join(current_chunk).strip()
+        if chunk_text.startswith(("class ", "def ")):
+            match = re.match(r"(class|def)\s+(\w+)", chunk_text)
+            identifier = match.group(2) if match else None
+            chunks.append((identifier, chunk_text))
 
     return chunks
 

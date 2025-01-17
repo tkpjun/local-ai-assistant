@@ -7,10 +7,21 @@ from lib.chunking import chunk_react_code
 from lib.chunking import chunk_json_file
 from lib.processing import process_imports, get_git_tracked_files
 from lib.db import upsert_snippet
+from lib.log import log
 
 directory = sys.argv[1]
 filepaths = get_git_tracked_files(directory)
 source_directory = sys.argv[2]
+
+def read_file(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError as e:
+        log.error(f'Failed to read file {filepath}: {e}')
+    except Exception as e:
+        log.error(f'An error occurred while reading file {filepath}: {e}')
+    return None
 
 # Function to process code snippets
 def process_file(filepath):
@@ -19,13 +30,8 @@ def process_file(filepath):
     if not os.path.exists(filepath):
         return
 
-    print(f"Processing file: {filepath}")
-    try:
-        with open(filepath, "r") as f:
-            text = f.read()
-    except:
-        print('Failed to read file')
-        return
+    log.info(f"Processing file: {filepath}")
+    text = read_file(filepath)
 
     local_file_path = filepath.removeprefix(f"{directory}/")
     modulepath = (local_file_path
@@ -47,12 +53,12 @@ def process_file(filepath):
     else:
         return
 
-    print(modulepath)
+    log.info(modulepath)
     upsert_snippet(modulepath, None, filepath, text, "file")
     process_imports(filepath, modulepath, None, text, text)
 
     for identifier, content in chunks:
-        print(modulepath + '.' + identifier)
+        log.info(modulepath + '.' + identifier)
         upsert_snippet(modulepath, identifier, filepath, content, "code")
         process_imports(filepath, modulepath, identifier, text, content)
 
@@ -72,7 +78,7 @@ def start_watcher():
     observer = Observer()
     observer.schedule(event_handler, path=directory, recursive=True)
     observer.start()
-    print(f"Watching for changes in {directory}...")
+    log.info(f"Watching for changes in {directory}...")
 
     try:
         while True:
