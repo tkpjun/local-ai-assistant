@@ -10,8 +10,17 @@ def chunk_python_code(text):
     # Regular expression to match top-level variable assignments
     var_assignment_pattern = re.compile(r"^\s*(\w+)\s*=")
 
+    import_lines = []
+    seen_non_import_line = False
+
     for line in lines:
         stripped_line = line.strip()
+
+        if not seen_non_import_line and (line.startswith("import ") or line.startswith("from ")):
+            import_lines.append(line)
+            continue
+        elif line:
+            seen_non_import_line = True
 
         # Check for lines with zero indentation (new top-level block)
         if stripped_line and not line.startswith(" "):  # Indentation level 0
@@ -53,6 +62,11 @@ def chunk_python_code(text):
             match = var_assignment_pattern.match(chunk_text)
             identifier = match.group(1) if match else None
             chunks.append((identifier, full_chunk))
+
+    # Add imports as the first chunk with identifier _imports_
+    if import_lines:
+        import_chunk_text = "\n".join(import_lines).strip()
+        chunks.insert(0, ('_imports_', import_chunk_text))
 
     return chunks
 
