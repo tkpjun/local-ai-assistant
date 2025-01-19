@@ -3,6 +3,8 @@ import re
 
 def chunk_python_code(text):
     lines = text.splitlines()
+    chunk_first_line = 1
+    line_number = 0
     chunks = []
     current_chunk = []
     preceding_comments = []
@@ -14,6 +16,7 @@ def chunk_python_code(text):
     seen_non_import_line = False
 
     for line in lines:
+        line_number += 1
         stripped_line = line.strip()
 
         if not seen_non_import_line and (line.startswith("import ") or line.startswith("from ")):
@@ -33,15 +36,16 @@ def chunk_python_code(text):
                     # Extract identifier
                     match = re.match(r"(class|def)\s+(\w+)", chunk_text)
                     identifier = match.group(2) if match else None
-                    chunks.append((identifier, full_chunk))
+                    chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
                     preceding_comments.clear()  # Clear comments after processing
                 elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
                     # Extract the variable name as the identifier
                     match = var_assignment_pattern.match(chunk_text)
                     identifier = match.group(1) if match else None
-                    chunks.append((identifier, full_chunk))
+                    chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
                     preceding_comments.clear()  # Clear comments after processing
 
+                chunk_first_line = line_number
                 current_chunk = []  # Reset for the new chunk
 
         if line.startswith('#'):
@@ -57,16 +61,16 @@ def chunk_python_code(text):
         if chunk_text.startswith(("class ", "def ")):
             match = re.match(r"(class|def)\s+(\w+)", chunk_text)
             identifier = match.group(2) if match else None
-            chunks.append((identifier, full_chunk))
+            chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
         elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
             match = var_assignment_pattern.match(chunk_text)
             identifier = match.group(1) if match else None
-            chunks.append((identifier, full_chunk))
+            chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
 
     # Add imports as the first chunk with identifier _imports_
     if import_lines:
         import_chunk_text = "\n".join(import_lines).strip()
-        chunks.insert(0, ('_imports_', import_chunk_text))
+        chunks.insert(0, ('_imports_', import_chunk_text, 1, len(import_lines)))
 
     return chunks
 

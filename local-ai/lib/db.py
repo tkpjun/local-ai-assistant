@@ -13,6 +13,8 @@ def init_sqlite_tables(directory):
         module TEXT,
         name TEXT,
         content TEXT,
+        start_line INTEGER,
+        end_line INTEGER,
         type TEXT
     )
     """)
@@ -32,12 +34,14 @@ def upsert_snippet(modulepath: str,
                    identifier: Optional[str],
                    filepath: str,
                    content: str,
+                   start_line: int,
+                   end_line: int,
                    type: str):
     snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
     cursor.execute("""
-                    INSERT OR REPLACE INTO snippets (id, source, module, name, content, type)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (snippet_id, filepath, modulepath, identifier, content, type))
+                    INSERT OR REPLACE INTO snippets (id, source, module, name, content, start_line, end_line, type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (snippet_id, filepath, modulepath, identifier, content, start_line, end_line, type))
     conn.commit()
 
 def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_name: str):

@@ -54,12 +54,12 @@ def process_file(filepath):
         return
 
     log.info(modulepath)
-    upsert_snippet(modulepath, None, filepath, text, "file")
+    upsert_snippet(modulepath, None, filepath, text, 1, text.count("\n") + 1, "file")
     process_imports(filepath, modulepath, None, text, text)
 
-    for identifier, content in chunks:
+    for identifier, content, first_line, last_line in chunks:
         log.info(modulepath + '.' + identifier)
-        upsert_snippet(modulepath, identifier, filepath, content, "code")
+        upsert_snippet(modulepath, identifier, filepath, content, first_line, last_line, "code")
         process_imports(filepath, modulepath, identifier, text, content)
 
 # File system event handler
