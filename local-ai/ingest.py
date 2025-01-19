@@ -25,9 +25,6 @@ config = {
     }
 }
 
-# Create tables
-init_sqlite_tables()
-
 # TODO add more metadata
 #  - imports referenced in snippet (or maybe add to the snippet itself)
 #  - file name
@@ -92,4 +89,6 @@ def ingest_codebase(directory, source_directory):
 
 directory = sys.argv[1]
 source_directory = sys.argv[2]
+# Create tables
+init_sqlite_tables(directory)
 ingest_codebase(directory, source_directory)

@@ -5,7 +5,7 @@ from typing import Optional
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
 
-def init_sqlite_tables():
+def init_sqlite_tables(directory):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS snippets (
         id TEXT PRIMARY KEY,
@@ -16,7 +16,7 @@ def init_sqlite_tables():
         type TEXT
     )
     """)
-    cursor.execute("DELETE FROM snippets")
+    cursor.execute("DELETE FROM snippets WHERE SOURCE LIKE ?", (f"{directory}%",))
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS dependencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +25,7 @@ def init_sqlite_tables():
         FOREIGN KEY (snippet_id) REFERENCES snippets (id)
     )
     """)
-    cursor.execute("DELETE FROM dependencies")
+    cursor.execute("DELETE FROM dependencies as d WHERE NOT EXISTS (SELECT 1 FROM snippets as s WHERE d.snippet_id = s.id)")
     conn.commit()
 
 def upsert_snippet(modulepath: str,

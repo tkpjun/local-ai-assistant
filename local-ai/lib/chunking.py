@@ -1,9 +1,6 @@
 import json
 import re
 
-# TODO
-#  - also make chunks out of top-level values
-#  - attach comments right above the definition
 def chunk_python_code(text):
     lines = text.splitlines()
     chunks = []
@@ -61,15 +58,45 @@ def chunk_python_code(text):
 
 # Chunker for React and JS/TS files
 def chunk_react_code(text):
-    pattern = r"(export\s+(?:default\s+)?(?:function|class)\s+\w+|\bfunction\s+\w+|\bclass\s+\w+)"
-    matches = [m.start() for m in re.finditer(pattern, text)]
-
+    lines = text.splitlines()
     chunks = []
-    for i, start in enumerate(matches):
-        end = matches[i + 1] if i + 1 < len(matches) else len(text)
-        chunk = text[start:end].strip()
-        identifier = chunk.split()[1]  # Extract function or class name
-        chunks.append((identifier, chunk))
+    current_chunk = []
+    preceding_comments = []
+
+    # Regular expression to match top-level function and class declarations
+    func_class_pattern = re.compile(r"^\s*(export\s+(?:default\s+)?(?:function|class)\s+\w+|\b(function|class)\s+\w+)")
+
+    for line in lines:
+        stripped_line = line.strip()
+
+        # Check for lines with zero indentation (new top-level block)
+        if stripped_line and not line.startswith(" "):  # Indentation level 0
+            if func_class_pattern.match(stripped_line):  # If a new function/class is found
+                if current_chunk:  # Process the previous chunk if it exists
+                    full_chunk = "\n".join(preceding_comments + current_chunk).strip()
+
+                    # Extract identifier (function or class name)
+                    match = re.search(r"\b(function|class)\s+(\w+)", "\n".join(current_chunk))
+                    identifier = match.group(2) if match else None
+
+                    chunks.append((identifier, full_chunk))
+                    preceding_comments.clear()  # Clear comments after processing
+                    current_chunk = []  # Reset for the new chunk
+
+        if line.startswith('#') or line.startswith('//'):
+            preceding_comments.append(line)
+        else:
+            current_chunk.append(line)  # Add line to the current chunk
+
+    # Process the last chunk if it exists
+    if current_chunk:
+        full_chunk = "\n".join(preceding_comments + current_chunk).strip()
+
+        # Extract identifier (function or class name)
+        match = re.search(r"\b(function|class)\s+(\w+)", "\n".join(current_chunk))
+        identifier = match.group(2) if match else None
+
+        chunks.append((identifier, full_chunk))
 
     return chunks
 
