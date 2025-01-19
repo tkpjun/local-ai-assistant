@@ -4,50 +4,58 @@ import re
 # TODO
 #  - also make chunks out of top-level values
 #  - attach comments right above the definition
-
 def chunk_python_code(text):
     lines = text.splitlines()
     chunks = []
     current_chunk = []
+    preceding_comments = []
 
     # Regular expression to match top-level variable assignments
     var_assignment_pattern = re.compile(r"^\s*(\w+)\s*=")
 
     for line in lines:
-        # Check if the line is a comment or an import statement
-        if line.strip().startswith("#") or line.strip().startswith("import "):
-            continue  # Skip comments and imports
+        stripped_line = line.strip()
 
         # Check for lines with zero indentation (new top-level block)
-        if line.strip() and not line.startswith(" "):  # Indentation level 0
+        if stripped_line and not line.startswith(" "):  # Indentation level 0
             if current_chunk:  # If a chunk is being built, process it
                 # Process the previous chunk
                 chunk_text = "\n".join(current_chunk).strip()
+                full_chunk = "\n".join(preceding_comments + [chunk_text]).strip()
+
                 if chunk_text.startswith(("class ", "def ")):  # Only keep class/def
                     # Extract identifier
                     match = re.match(r"(class|def)\s+(\w+)", chunk_text)
                     identifier = match.group(2) if match else None
-                    chunks.append((identifier, chunk_text))
+                    chunks.append((identifier, full_chunk))
+                    preceding_comments.clear()  # Clear comments after processing
                 elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
                     # Extract the variable name as the identifier
                     match = var_assignment_pattern.match(chunk_text)
                     identifier = match.group(1) if match else None
-                    chunks.append((identifier, chunk_text))
+                    chunks.append((identifier, full_chunk))
+                    preceding_comments.clear()  # Clear comments after processing
+
                 current_chunk = []  # Reset for the new chunk
 
-        current_chunk.append(line)  # Add line to the current chunk
+        if line.startswith('#'):
+            preceding_comments.append(line)
+        else:
+            current_chunk.append(line)  # Add line to the current chunk
 
     # Process the last chunk if it exists
     if current_chunk:
         chunk_text = "\n".join(current_chunk).strip()
+        full_chunk = "\n".join(preceding_comments + [chunk_text]).strip()
+
         if chunk_text.startswith(("class ", "def ")):
             match = re.match(r"(class|def)\s+(\w+)", chunk_text)
             identifier = match.group(2) if match else None
-            chunks.append((identifier, chunk_text))
+            chunks.append((identifier, full_chunk))
         elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
             match = var_assignment_pattern.match(chunk_text)
             identifier = match.group(1) if match else None
-            chunks.append((identifier, chunk_text))
+            chunks.append((identifier, full_chunk))
 
     return chunks
 
