@@ -40,18 +40,16 @@ def fetch_context_from_vector_store(search_context: str, context_cutoff: int):
             relevant_docs = basic_retriever.invoke(context_batch)
     return context
 
-def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2):
+def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
-    history_cutoff = 10000
     prompt = ""
 
     if include_dependencies or include_dependencies_2:
-        dependencies_cutoff = 10000
         dependencies = []
         if include_dependencies:
-            dependencies += get_dependencies(file_reference, dependencies_cutoff)
+            dependencies += get_dependencies(file_reference, context_cutoff)
         if include_dependencies_2:
-            dependencies += get_dependencies(file_reference_2, dependencies_cutoff)
+            dependencies += get_dependencies(file_reference_2, context_cutoff)
         dependencies = list(dict.fromkeys(dependencies))
         prompt += f"Code file with dependencies denoted in Markdown:\n{"".join(dependencies)}\n"
     if file_reference is not None:
@@ -117,10 +115,13 @@ with gr.Blocks() as chat_interface:
         with gr.Column():  # Note the parentheses here
             file_reference_2 = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
             include_dependencies_2 = gr.Checkbox(label="Include Dependencies", value=False)
+        with gr.Column():
+            history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
+            context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
     user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
 
     # Handle user input and display the streaming response
-    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies, file_reference_2, include_dependencies_2], outputs=chatbot)
+    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff], outputs=chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()

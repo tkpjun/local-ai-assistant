@@ -33,35 +33,29 @@ def get_dependencies(identifier: str, context_limit: int):
         log.warn(f"Snippet with ID {identifier} does not exist or has no valid dependencies.")
         return ""
 
-    # Filter and collect snippets starting from the required snippet
+    # Filter and collect snippets starting from the required snippet using BFS
     result_order = []
     visited = set()
-    stack = [identifier]
+    queue = deque([identifier])
 
-    while stack:
-        current_snippet_id = stack.pop()
+    while queue:
+        current_snippet_id = queue.popleft()
         if current_snippet_id in visited:
             continue
         visited.add(current_snippet_id)
 
-        # Add all dependencies of the current snippet to the stack
-        for dependent_snippet_id in reversed(dependencies[current_snippet_id]):
+        # Add all dependencies of the current snippet to the queue
+        for dependent_snippet_id in dependencies[current_snippet_id]:
             if dependent_snippet_id not in visited:
-                stack.append(dependent_snippet_id)
+                queue.append(dependent_snippet_id)
 
         result_order.append(current_snippet_id)
-
-    # Reverse the order to ensure correct dependency resolution
-    result_order.reverse()
 
     # Collect snippets based on the resolved order
     result = []
     context_left = context_limit  # Assuming a large enough limit
 
-    for snippet_id in result_order:
-        if snippet_id == identifier:
-            continue
-
+    for snippet_id in result_order[1:]:  # Skip the identifier itself
         if snippet_id not in snippets:
             continue
 
