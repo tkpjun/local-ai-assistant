@@ -2,7 +2,7 @@ import json
 
 import gradio as gr
 import requests
-from lib.aggregating import get_dependencies, snippet_to_prompt
+from lib.aggregating import get_dependencies
 import sqlite3
 
 # Connect to SQLite database (or create it if it doesn't exist)
@@ -12,23 +12,45 @@ cursor = conn.cursor()
 def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
     prompt = ""
+    context_snippets = []
+    file_order = []
 
     if include_dependencies or include_dependencies_2:
-        dependencies = []
         if include_dependencies:
-            dependencies += get_dependencies(file_reference, context_cutoff)
+            context_snippets += get_dependencies(file_reference, context_cutoff)
         if include_dependencies_2:
-            dependencies += get_dependencies(file_reference_2, context_cutoff)
-        dependencies = list(dict.fromkeys(dependencies))
-        prompt += f"Code file with dependencies denoted in Markdown:\n{"".join(dependencies)}\n"
+            context_snippets += get_dependencies(file_reference_2, context_cutoff)
     if file_reference is not None:
-        cursor.execute("SELECT source, content FROM snippets WHERE id = ?", (file_reference,))
+        cursor.execute("SELECT content, source, start_line, end_line FROM snippets WHERE id = ?", (file_reference,))
         snippet = cursor.fetchone()
-        prompt += snippet_to_prompt(snippet[0], snippet[1])
+        context_snippets.append(snippet)
     if file_reference_2 is not None:
-        cursor.execute("SELECT source, content FROM snippets WHERE id = ?", (file_reference_2,))
+        cursor.execute("SELECT content, source, start_line, end_line FROM snippets WHERE id = ?", (file_reference_2,))
         snippet = cursor.fetchone()
-        prompt += snippet_to_prompt(snippet[0], snippet[1])
+        context_snippets.append(snippet)
+
+    if context_snippets:
+        for _, source, _, _ in context_snippets:
+            if file_order.count(source) > 0:
+                file_order.remove(source)
+            file_order.append(source)
+
+        seen = set()
+        context_snippets = [dep for dep in context_snippets if (dep[1], dep[2], dep[3]) not in seen and not seen.add((dep[1], dep[2], dep[3]))]
+        context_snippets = sorted(context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2]))
+
+        prompt += f"Code file with dependencies denoted in Markdown:\n\n"
+        current_source = ""
+        for content, source, _, _ in context_snippets:
+            if source != current_source:
+                if current_source:
+                    prompt += "```\n\n"
+                prompt += f"# {source}:\n```\n"
+                current_source = source
+            else:
+                prompt += "\n"
+            prompt += f"{content}\n"
+        prompt += "```"
 
     print(prompt)
 

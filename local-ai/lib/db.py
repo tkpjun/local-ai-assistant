@@ -50,7 +50,7 @@ def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_nam
     conn.commit()
 
 def get_all_snippets():
-    cursor.execute("SELECT id, source, content FROM snippets")
+    cursor.execute("SELECT id, source, content, start_line, end_line FROM snippets")
     return cursor.fetchall()
 
 def get_all_dependencies():

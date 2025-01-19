@@ -13,6 +13,10 @@ def get_git_tracked_files(root_dir):
     )
     return result.stdout.splitlines()
 
+# TODO
+#  - fix dependencies for variables
+#  - add imports as dependencies to everything
+
 # Function to process imports and store dependencies
 def process_imports(filepath, modulepath, identifier, full_content, snippet_content):
     # Detect imports at the beginning of the file (Python and JS/TS)

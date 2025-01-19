@@ -6,7 +6,7 @@ from lib.log import log
 # Function to recursively unroll dependencies
 def get_dependencies(identifier: str, context_limit: int):
     # Fetch all snippets and their dependencies
-    snippets = {row[0]: (row[1], row[2]) for row in get_all_snippets()}
+    snippets = {row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()}
 
     dependencies = defaultdict(list)
     reverse_dependencies = defaultdict(int)
@@ -59,16 +59,12 @@ def get_dependencies(identifier: str, context_limit: int):
         if snippet_id not in snippets:
             continue
 
-        source, content = snippets[snippet_id]
-        current_desc = f"# {source}:\n```\n{content}\n```\n\n"
+        source, content, start_line, end_line = snippets[snippet_id]
 
-        if context_left <= len(current_desc):
+        if context_left <= len(content):
             break
 
-        result.append(current_desc)
-        context_left -= len(current_desc)
+        result.append((content, source, start_line, end_line))
+        context_left -= len(content)
 
     return result
-
-def snippet_to_prompt(source, content):
-    return f"# {source}:\n```\n{content}\n```\n\n"
