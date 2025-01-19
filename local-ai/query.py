@@ -75,19 +75,22 @@ file_paths = fetch_file_paths()
 with gr.Blocks() as chat_interface:
     gr.Markdown("## 💬 Chat with Your Local LLM (Ollama)")
 
-    # Chatbot component
-    chatbot = gr.Chatbot(elem_id="chatbot")
     with gr.Row():
-        with gr.Column():  # Note the parentheses here
-            file_reference = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
-            include_dependencies = gr.Checkbox(label="Include Dependencies", value=False)
-        with gr.Column():  # Note the parentheses here
-            file_reference_2 = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
-            include_dependencies_2 = gr.Checkbox(label="Include Dependencies", value=False)
-        with gr.Column():
-            history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
-            context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
-    user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
+        with gr.Column(scale=3):
+            chatbot = gr.Chatbot(elem_id="chatbot", min_height=800)
+            user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
+        with gr.Column(scale=1):
+            with gr.Row():
+                history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
+                context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
+            with gr.Row():
+                with gr.Column():
+                    file_reference = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
+                    include_dependencies = gr.Checkbox(label="Include Dependencies", value=False)
+            with gr.Row():
+                with gr.Column():
+                    file_reference_2 = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
+                    include_dependencies_2 = gr.Checkbox(label="Include Dependencies", value=False)
 
     # Handle user input and display the streaming response
     user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff], outputs=chatbot)
