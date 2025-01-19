@@ -2,20 +2,14 @@
 import sys
 import os
 
-from langchain.schema import Document
-from langchain_community.vectorstores import Qdrant
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
 from lib.chunking import chunk_python_code, chunk_react_code, chunk_json_file
 from lib.processing import process_imports, get_git_tracked_files
 from lib.log import log
-
-from lib.embeddings import OllamaEmbeddings
 from lib.db import init_sqlite_tables, upsert_snippet
+from lib.qdrant import insert_snippets
+
 
 config = {
-    "qdrant_url": "http://localhost:6333",
-    "embeddings_model": OllamaEmbeddings,
     "file_processors": {
         ".py": chunk_python_code,
         ".js": chunk_react_code,
@@ -24,12 +18,6 @@ config = {
         ".json": chunk_json_file
     }
 }
-
-# TODO add more metadata
-#  - imports referenced in snippet (or maybe add to the snippet itself)
-#  - file name
-#  - modules
-#  - commit history
 
 def read_file(filepath):
     try:
@@ -42,17 +30,8 @@ def read_file(filepath):
     return None
 
 def ingest_codebase(directory, source_directory):
-    qdrant_client = QdrantClient(config["qdrant_url"])
-    qdrant_client.recreate_collection(
-        collection_name="codebase",
-        vectors_config=models.VectorParams(size=5120, distance=models.Distance.COSINE),
-    )
-    embeddings = config["embeddings_model"]()
-    vectorstore = Qdrant(client=qdrant_client, collection_name="codebase", embeddings=embeddings)
-
     filepaths = get_git_tracked_files(directory)
     for file in filepaths:
-        documents = []
         filepath = directory + "/" + file
         local_file_path = filepath.removeprefix(f"{directory}/")
         modulepath = (local_file_path
@@ -79,13 +58,14 @@ def ingest_codebase(directory, source_directory):
         upsert_snippet(modulepath, None, filepath, text, "file")
         process_imports(filepath, modulepath, None, text, text)
 
+        snippets = []
         for identifier, content in chunks:
             log.info(f"Processing snippet: {modulepath + '.' + identifier}")
             upsert_snippet(modulepath, identifier, filepath, content, "code")
             process_imports(filepath, modulepath, identifier, text, content)
-            documents.append(Document(page_content=content, metadata={"source": filepath, "identifier": identifier}))
+            snippets.append((filepath, identifier, content))
 
-        vectorstore.add_documents(documents)
+        insert_snippets(snippets)
 
 directory = sys.argv[1]
 source_directory = sys.argv[2]
