@@ -2,43 +2,12 @@ import json
 
 import gradio as gr
 import requests
-from langchain.vectorstores import Qdrant
-from qdrant_client import QdrantClient
 from lib.aggregating import get_dependencies, snippet_to_prompt
-
-from lib.embeddings import OllamaEmbeddings
 import sqlite3
 
 # Connect to SQLite database (or create it if it doesn't exist)
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
-
-# Initialize Qdrant client
-qdrant_client = QdrantClient("http://localhost:6333")
-
-# Initialize vectorstore with Ollama embeddings
-embeddings = OllamaEmbeddings()
-vectorstore = Qdrant(client=qdrant_client, collection_name="codebase", embeddings=embeddings)
-
-def fetch_context_from_vector_store(search_context: str, context_cutoff: int):
-    mmr_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.25})
-    basic_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-    relevant_docs = mmr_retriever.invoke(search_context)
-    context_applied = 0
-    context = ""
-    context += "Context from codebase:\n\n"
-    while context_applied < context_cutoff:
-        context_batch = ""
-        metadata_batch = ""
-        for doc in relevant_docs:
-            context_batch += f"{doc.page_content}\n\n"
-            metadata_batch += f"{doc.metadata}\n"
-            context_applied += len(doc.page_content)
-        context += context_batch
-        if context_applied < context_cutoff:
-            context_batch += metadata_batch
-            relevant_docs = basic_retriever.invoke(context_batch)
-    return context
 
 def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
