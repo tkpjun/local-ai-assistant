@@ -32,7 +32,7 @@ def read_file(filepath):
 def ingest_codebase(directory, source_directory):
     filepaths = get_git_tracked_files(directory)
     for file in filepaths:
-        filepath = directory + "/" + file
+        filepath = f"{directory}/{file}"
         local_file_path = filepath.removeprefix(f"{directory}/")
         modulepath = (local_file_path
                       .removeprefix(f"{source_directory}/")

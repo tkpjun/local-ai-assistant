@@ -4,38 +4,62 @@ import gradio as gr
 import requests
 from lib.aggregating import get_dependencies
 import sqlite3
+from lib.processing import get_git_tracked_files
+import sys
+
+directory = sys.argv[1]
 
 # Connect to SQLite database (or create it if it doesn't exist)
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
 
+def fetch_snippet_ids():
+    cursor.execute("SELECT id FROM snippets WHERE source LIKE ? ORDER BY id", (f"{directory}%",))
+    snippet_ids = cursor.fetchall()
+    return [snippet_id[0] for snippet_id in snippet_ids]
+
+def fetch_snippets_by_source(source):
+    cursor.execute("SELECT name FROM snippets WHERE source = ? AND name IS NOT NULL and name != '_imports_' ORDER BY name", (source,))
+    names = cursor.fetchall()
+    return [name[0] for name in names]
+
+# Fetch file paths from the database
+snippet_ids = fetch_snippet_ids()
+files = get_git_tracked_files(directory)
+
+# TODO
+#  - project dependencies (package.json, pyproject.toml...)
+#  - project tree including exportable names
+#  - get_dependents function
+
 def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
-    prompt = """
-    You're an elite software developer. User is your teammate.
-    You're good-natured, a team player, and good at expressing yourself clearly.
-    You're an expert in every programming language, software technology and agile methodology.
-    You propose readable, elegant ahd testable solutions that offload complexity to vetted mainstream libraries.
-    If an existing library in the project can do the job, you use that one.
-    You modularize code into different files based on its dependencies, denoted in Markdown.
-    
-    Every programming task should lead to a Potentially Releasable Product Increment.
-    If User gives you a task that seems like more than one Jira ticket, break it down into independent sub-tasks, and solve them one at a time.
-    Don't solve more than one task per message, ask User for confirmation before proceeding to the next.
-    If User's instructions are too vague for you to write good software, ask clarifying questions before writing code.
-    
-    User is also a professional software developer and doesn't need instruction unless they ask for it.
-    If the project exceeds expectations, you two will get a big reward.
-    You want to help User succeed at the project.
-    
-    """
+    prompt = """# Context:
+You're an elite software developer. You're pair programming with User over chat.
+Propose readable, elegant ahd testable solutions that offload complexity to appropriate libraries.
+Modularize code into different files based on its dependencies, denoted in Markdown.
+Use the project structure for clues about correct modularization.
+
+Every programming task should lead to a Potentially Releasable Product Increment.
+If User gives you a task that seems like more than one Jira ticket, break it down into independent sub-tasks, and solve them one at a time.
+Don't solve more than one task per message, ask User for confirmation before proceeding to the next.
+If User's instructions are too vague for you to write good software, ask clarifying questions before writing code.
+
+User is also a professional and doesn't need instruction unless they ask for it.
+When coding, you just write out the task and then write snippets of code changes.
+
+If the project exceeds expectations, everyone will be happy and you will get a reward.
+"""
+
+    prompt += "# Project structure:\n"
+    for file in files:
+        prompt += f"- {file}\n"
+        snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
+        for name in snippet_names:
+            prompt += f"  - {name}\n"
+
     context_snippets = []
     file_order = []
-
-    # TODO
-    #  - project dependencies (package.json, pyproject.toml...)
-    #  - project tree including exportable names
-    #  - get_dependents function
 
     if file_options == "Dependencies":
         context_snippets += get_dependencies(file_reference, context_cutoff)
@@ -60,13 +84,13 @@ def stream_chat(history, user_message, file_reference, file_options, file_refere
         context_snippets = [dep for dep in context_snippets if (dep[1], dep[2], dep[3]) not in seen and not seen.add((dep[1], dep[2], dep[3]))]
         context_snippets = sorted(context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2]))
 
-        prompt += f"Project code for context denoted in Markdown:\n\n"
+        prompt += f"# Relevant snippets of project code denoted in Markdown:\n\n"
         current_source = ""
         for content, source, _, _ in context_snippets:
             if source != current_source:
                 if current_source:
                     prompt += "```\n\n"
-                prompt += f"# {source}:\n```\n"
+                prompt += f"## {source}:\n```\n"
                 current_source = source
             else:
                 prompt += "\n"
@@ -77,7 +101,7 @@ def stream_chat(history, user_message, file_reference, file_options, file_refere
 
     history_applied = 0
     history_index = -1
-    prompt += "Chat history:\n\n"
+    prompt += "# Chat history:\n\n"
     while history_applied < history_cutoff and len(history) >= -history_index:
         prompt += f"User:\n{history[history_index][0]}\nYou:\n{history[history_index][1]}\n"
         history_applied += len(history[history_index][0]) + len(history[history_index][1])
@@ -106,14 +130,6 @@ def stream_chat(history, user_message, file_reference, file_options, file_refere
             except json.JSONDecodeError:
                 continue
 
-def fetch_file_paths():
-    cursor.execute("SELECT id FROM snippets ORDER BY id")
-    file_paths = cursor.fetchall()
-    return [path[0] for path in file_paths]
-
-# Fetch file paths from the database
-file_paths = fetch_file_paths()
-
 # Create a Gradio chat interface with streaming
 with gr.Blocks() as chat_interface:
     gr.Markdown("## 💬 Chat with Your Local LLM (Ollama)")
@@ -128,11 +144,11 @@ with gr.Blocks() as chat_interface:
                 context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
             with gr.Row():
                 with gr.Column():
-                    file_reference = gr.Dropdown(label="Select snippet by module", choices=file_paths, value=None, allow_custom_value=True)
+                    file_reference = gr.Dropdown(label="Select snippet by module", choices=snippet_ids, value=None, allow_custom_value=True)
                     file_options = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
             with gr.Row():
                 with gr.Column():
-                    file_reference_2 = gr.Dropdown(label="Select snippet by module", choices=file_paths, value=None, allow_custom_value=True)
+                    file_reference_2 = gr.Dropdown(label="Select snippet by module", choices=snippet_ids, value=None, allow_custom_value=True)
                     file_options_2 = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
 
     # Handle user input and display the streaming response
