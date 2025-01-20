@@ -56,14 +56,15 @@ def ingest_codebase(directory, source_directory):
 
         log.info(f"Processing snippet: {modulepath}")
         upsert_snippet(modulepath, None, filepath, text, 1, text.count("\n") + 1, "file")
-        process_imports(filepath, modulepath, None, text, text)
 
         snippets = []
         for identifier, content, first_line, last_line in chunks:
             log.info(f"Processing snippet: {modulepath + '.' + identifier}")
             upsert_snippet(modulepath, identifier, filepath, content, first_line, last_line, "code")
-            process_imports(filepath, modulepath, identifier, text, content)
             snippets.append((filepath, identifier, content))
+
+        chunks.append((None, text, 1, text.count("\n") + 1))
+        process_imports(filepath, modulepath, text, chunks)
 
         insert_snippets(snippets)
 
