@@ -9,17 +9,38 @@ import sqlite3
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
 
-def stream_chat(history, user_message, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff):
+def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
-    prompt = ""
+    prompt = """
+    You're an elite software developer. User is your teammate.
+    You're good-natured, a team player, and good at expressing yourself clearly.
+    You're an expert in every programming language, software technology and agile methodology.
+    You propose readable, elegant ahd testable solutions that offload complexity to vetted mainstream libraries.
+    If an existing library in the project can do the job, you use that one.
+    You modularize code into different files based on its dependencies, denoted in Markdown.
+    
+    Every programming task should lead to a Potentially Releasable Product Increment.
+    If User gives you a task that seems like more than one Jira ticket, break it down into independent sub-tasks, and solve them one at a time.
+    Don't solve more than one task per message, ask User for confirmation before proceeding to the next.
+    If User's instructions are too vague for you to write good software, ask clarifying questions before writing code.
+    
+    User is also a professional software developer and doesn't need instruction unless they ask for it.
+    If the project exceeds expectations, you two will get a big reward.
+    You want to help User succeed at the project.
+    
+    """
     context_snippets = []
     file_order = []
 
-    if include_dependencies or include_dependencies_2:
-        if include_dependencies:
-            context_snippets += get_dependencies(file_reference, context_cutoff)
-        if include_dependencies_2:
-            context_snippets += get_dependencies(file_reference_2, context_cutoff)
+    # TODO
+    #  - project dependencies (package.json, pyproject.toml...)
+    #  - project tree including exportable names
+    #  - get_dependents function
+
+    if file_options == "Dependencies":
+        context_snippets += get_dependencies(file_reference, context_cutoff)
+    if file_options_2 == "Dependencies":
+        context_snippets += get_dependencies(file_reference_2, context_cutoff)
     if file_reference is not None:
         cursor.execute("SELECT content, source, start_line, end_line FROM snippets WHERE id = ?", (file_reference,))
         snippet = cursor.fetchone()
@@ -39,7 +60,7 @@ def stream_chat(history, user_message, file_reference, include_dependencies, fil
         context_snippets = [dep for dep in context_snippets if (dep[1], dep[2], dep[3]) not in seen and not seen.add((dep[1], dep[2], dep[3]))]
         context_snippets = sorted(context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2]))
 
-        prompt += f"Code file with dependencies denoted in Markdown:\n\n"
+        prompt += f"Project code for context denoted in Markdown:\n\n"
         current_source = ""
         for content, source, _, _ in context_snippets:
             if source != current_source:
@@ -101,21 +122,21 @@ with gr.Blocks() as chat_interface:
         with gr.Column(scale=3):
             chatbot = gr.Chatbot(elem_id="chatbot", min_height=800)
             user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
-        with gr.Column(scale=1):
+        with gr.Column(scale=1, min_width=400):
             with gr.Row():
                 history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
                 context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
             with gr.Row():
                 with gr.Column():
-                    file_reference = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
-                    include_dependencies = gr.Checkbox(label="Include Dependencies", value=False)
+                    file_reference = gr.Dropdown(label="Select snippet by module", choices=file_paths, value=None, allow_custom_value=True)
+                    file_options = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
             with gr.Row():
                 with gr.Column():
-                    file_reference_2 = gr.Dropdown(label="Select File Path", choices=file_paths, value=None, allow_custom_value=True)
-                    include_dependencies_2 = gr.Checkbox(label="Include Dependencies", value=False)
+                    file_reference_2 = gr.Dropdown(label="Select snippet by module", choices=file_paths, value=None, allow_custom_value=True)
+                    file_options_2 = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
 
     # Handle user input and display the streaming response
-    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, include_dependencies, file_reference_2, include_dependencies_2, history_cutoff, context_cutoff], outputs=chatbot)
+    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff], outputs=chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()
