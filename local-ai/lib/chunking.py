@@ -80,8 +80,8 @@ def chunk_js_ts_code(text):
     preceding_comments = []
 
     # Regular expression to match top-level function, class, var, let, const declarations
-    func_class_var_pattern = re.compile(
-        r"^\s*(export\s+)?(?:async\s+)?(?:function|class|(?:var|let|const)\s+\w+)"
+    func_class_var_interface_type_pattern = re.compile(
+        r"^\s*(export\s+)?(?:async\s+)?(?:function|class|(?:var|let|const)\s+\w+|(interface|type)\s+\w+)"
     )
 
     import_pattern = re.compile(r"^\s*import\b")
@@ -127,12 +127,12 @@ def chunk_js_ts_code(text):
 
         # Check for lines with zero indentation (new top-level block)
         if stripped_line and not line.startswith(" "):
-            if func_class_var_pattern.match(stripped_line):  # If a new function/class/var/let/const is found
+            if func_class_var_interface_type_pattern.match(stripped_line):  # If a new function/class/var/let/const is found
                 if current_chunk:  # Process the previous chunk if it exists
                     full_chunk = "\n".join(current_chunk).strip()
 
                     # Extract identifier (function, class, var, let, const name)
-                    match = re.search(r"\b(function|class|(?:var|let|const)\s+)(\w+)", "\n".join(current_chunk))
+                    match = re.search(r"\b(function|class|(?:var|let|const|interface|type)\s+)(\w+)", "\n".join(current_chunk))
                     identifier = match.group(2) if match else None
 
                     if identifier is not None:
@@ -154,7 +154,7 @@ def chunk_js_ts_code(text):
         full_chunk = "\n".join(current_chunk).strip()
 
         # Extract identifier (function, class, var, let, const name)
-        match = re.search(r"\b(function|class|(?:var|let|const)\s+)(\w+)", "\n".join(current_chunk))
+        match = re.search(r"\b(function|class|(?:var|let|const|interface|type)\s+)(\w+)", "\n".join(current_chunk))
         identifier = match.group(2) if match else None
         if identifier is not None:
             chunks.append((identifier, full_chunk, current_chunk_start_line, line_number - 1))

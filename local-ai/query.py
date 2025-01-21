@@ -30,11 +30,8 @@ def fetch_snippets_by_source(source):
 # Fetch file paths from the database
 snippet_ids = fetch_snippet_ids()
 files = get_git_tracked_files(directory)
-definition_files = [f"{directory}/{file}" for file in files if file.endswith("pyproject.toml")]
+definition_files = [f"{directory}/{file}" for file in files if file.endswith("pyproject.toml") or file.endswith('package.json')]
 (project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
-
-# TODO
-#  - get_dependents function
 
 def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff):
     history = history or []  # Ensure history is not None
@@ -67,6 +64,8 @@ If the project exceeds expectations, everyone will be happy and you will get a r
     for file in files:
         prompt += f"- {file}\n"
         snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
+        if ".test." in file or ".test-" in file:
+            continue
         for name in snippet_names:
             prompt += f"  - {name}\n"
 
@@ -112,8 +111,6 @@ If the project exceeds expectations, everyone will be happy and you will get a r
                 prompt += "\n"
             prompt += f"{content}\n"
         prompt += "```"
-
-    print(prompt)
 
     history_applied = 0
     history_index = -1

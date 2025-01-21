@@ -3,6 +3,7 @@ import subprocess
 from lib.db import upsert_dependency
 from lib.log import log
 import tomli
+import os
 
 def get_git_tracked_files(root_dir):
     result = subprocess.run(
@@ -34,7 +35,9 @@ def get_project_dependencies(filepaths):
 # Function to process imports and store dependencies
 def process_imports(filepath, modulepath, full_content, snippets):
     # Detect imports at the beginning of the file (Python and JS/TS)
-    regex = r'^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)'
+    regex_py = r'^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)'
+    regex_js_ts = r'^(?:import\s+(?:\*\s+as\s+\S+|{[^}]+}|[\w$]+)\s+from\s+[\'"][^\'"]+[\'"]|import\s+[\'"][^\'"]+[\'"]|export\s+{[^}]+}\s+from\s+[\'"][^\'"]+[\'"])'
+    regex = regex_py if filepath.endswith(".py") else regex_js_ts
     import_lines = re.findall(regex, full_content, re.MULTILINE)
     dependencies_from_same_file = [snippet[0] for snippet in snippets if snippet[0] is not None]
 
@@ -44,10 +47,15 @@ def process_imports(filepath, modulepath, full_content, snippets):
         for line in import_lines:
             if filepath.endswith((".js", ".ts", ".tsx")):
                 # For JS/TS files
-                match = re.search(r'from\s+["\'](.*?)["\']', line)
-                if match:
-                    path = match.group(1)
-                    all_imports[path] = []
+                keyword_match = re.search(r"import\s*{\s*([^}]*)\s*}.*", line, re.DOTALL)
+                imports = []
+                if keyword_match:
+                    # Get the matched group and split by commas, then strip whitespace
+                    imports = [item.strip() for item in keyword_match.group(1).split(",") if item.strip()]
+                module_match = re.search(r'from\s+["\'](.*?)["\']', line, re.MULTILINE)
+                if module_match:
+                    path = module_match.group(1)
+                    all_imports[path] = imports
             elif filepath.endswith(".py"):
                 # For Python files
                 matches = re.findall(r'(?:from\s+(\w+(?:\.\w+)*)\s+import\s+([\w,\s]+))|(?:import\s+(\w+(?:\.\w+)*))', line)
@@ -68,11 +76,20 @@ def process_imports(filepath, modulepath, full_content, snippets):
         relevant_imports = []
         for module_path, objects in all_imports.items():
             if filepath.endswith((".js", ".ts", ".tsx")):
-                # For JS/TS files, we can assume the whole module is imported
-                if f'from "{module_path}"' in full_content or f"from '{module_path}'" in full_content:
-                    relevant_imports.append(module_path)
+                for obj in objects:
+                    if re.search(rf'\b{re.escape(obj)}\b', snippet_content):
+                        amount = module_path.count("../")
+                        modified_module_path = module_path
+                        if "./" in module_path:
+                            modified_module_path = modulepath
+                            for _ in range(amount):
+                                modified_module_path = os.path.dirname(modified_module_path)
+                            modified_module_path = (f"{modulepath}{modified_module_path}"
+                                                    .replace("../", "")
+                                                    .replace("./", ""))
+                        modified_module_path = modified_module_path.replace("/", ".")
+                        relevant_imports.append(f"{modified_module_path}.{obj}")
             elif filepath.endswith(".py"):
-                # For Python files, check which specific objects are used in the snippet
                 for obj in objects:
                     if re.search(rf'\b{re.escape(obj)}\b', snippet_content):
                         relevant_imports.append(f"{module_path}.{obj}" if module_path != obj else module_path)
