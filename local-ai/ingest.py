@@ -8,7 +8,6 @@ from lib.log import log
 from lib.db import init_sqlite_tables, upsert_snippet
 from lib.qdrant import insert_snippets
 
-
 config = {
     "file_processors": {
         ".py": chunk_python_code,

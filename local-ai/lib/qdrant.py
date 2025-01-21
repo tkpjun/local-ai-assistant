@@ -3,10 +3,14 @@ from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from lib.embeddings import OllamaEmbeddings
+from dotenv import load_dotenv
+import os
+
+load_dotenv(override=False)
 
 config = {
-    "enabled": False,
-    "qdrant_url": "http://localhost:6333",
+    "enabled": os.getenv("QDRANT_ENABLED") == "True",
+    "qdrant_url": os.getenv("QDRANT_URL"),
     "embeddings_model": OllamaEmbeddings,
 }
 

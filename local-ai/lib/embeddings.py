@@ -1,13 +1,17 @@
 from langchain.embeddings.base import Embeddings
 import requests
+from dotenv import load_dotenv
+import os
+
+load_dotenv(override=False)
 
 # Custom Embeddings class to use Ollama
 class OllamaEmbeddings(Embeddings):
     def _get_embedding(self, text):
         """Helper method to get embedding from Ollama."""
         response = requests.post(
-            "http://localhost:11434/api/embed",
-            json={"model": "qwen2.5-coder:32b", "input": text},
+            os.getenv("LLM_EMBED_ENDPOINT"),
+            json={"model": os.getenv("FAST_LLM"), "input": text},
         )
         response.raise_for_status()
         return response.json()["embeddings"][0]

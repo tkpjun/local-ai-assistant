@@ -6,6 +6,10 @@ from lib.aggregating import get_dependencies
 import sqlite3
 from lib.processing import get_git_tracked_files
 import sys
+from dotenv import load_dotenv
+import os
+
+load_dotenv(override=False)
 
 directory = sys.argv[1]
 
@@ -111,8 +115,8 @@ If the project exceeds expectations, everyone will be happy and you will get a r
     prompt += f"User:\n{user_message}\n"
 
     response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={"model": "qwen2.5-coder:32b", "prompt": prompt},
+        os.getenv("LLM_QUERY_ENDPOINT"),
+        json={"model": os.getenv("FAST_LLM"), "prompt": prompt},
         stream=True
     )
     response.raise_for_status()
@@ -132,7 +136,7 @@ If the project exceeds expectations, everyone will be happy and you will get a r
 
 # Create a Gradio chat interface with streaming
 with gr.Blocks() as chat_interface:
-    gr.Markdown("## 💬 Chat with Your Local LLM (Ollama)")
+    gr.Markdown("## 💬 Chat with Your Local LLM")
 
     with gr.Row():
         with gr.Column(scale=3):
