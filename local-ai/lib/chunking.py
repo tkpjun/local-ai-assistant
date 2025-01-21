@@ -84,8 +84,9 @@ def chunk_js_ts_code(text):
         r"^\s*(export\s+)?(?:async\s+)?(?:function|class|(?:var|let|const)\s+\w+|(interface|type)\s+\w+)"
     )
 
-    import_pattern = re.compile(r"^\s*import\b")
+    import_start_pattern = re.compile(r"^\s*import\b")
     module_exports_pattern = re.compile(r"^\s*module\.exports\b")
+    in_comment_block = False
     in_import_block = False
     found_module_exports = False
 
@@ -104,20 +105,24 @@ def chunk_js_ts_code(text):
             continue
         elif '/*' in line and not line.strip().endswith('*/'):
             preceding_comments.append(line)
-            in_import_block = True
+            in_comment_block = True
             continue
-        elif line.strip().endswith('*/') and in_import_block:
+        elif line.strip().endswith('*/') and in_comment_block:
             preceding_comments.append(line)
-            in_import_block = False
+            in_comment_block = False
             continue
-        elif in_import_block:
+        elif in_comment_block:
             preceding_comments.append(line)
             continue
 
         # Check for import lines
-        if import_pattern.match(stripped_line):
+        if import_start_pattern.match(stripped_line):
+            in_import_block = True
+
+        if in_import_block:
             import_lines.append((line_number, line))
-            continue
+            if "} from" in stripped_line:
+                in_import_block = False
 
         # Check for module.exports
         if module_exports_pattern.search(stripped_line):

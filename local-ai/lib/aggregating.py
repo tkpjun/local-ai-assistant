@@ -9,29 +9,9 @@ def get_dependencies(identifier: str, context_limit: int):
     snippets = {row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()}
 
     dependencies = defaultdict(list)
-    reverse_dependencies = defaultdict(int)
 
     for snippet_id, dependency_id in get_all_dependencies():
         dependencies[snippet_id].append(dependency_id)
-        reverse_dependencies[dependency_id] += 1
-
-    # Perform topological sort
-    order = []
-    queue = deque([snippet_id for snippet_id in snippets if reverse_dependencies[snippet_id] == 0])
-
-    while queue:
-        current_snippet_id = queue.popleft()
-        order.append(current_snippet_id)
-
-        for dependent_snippet_id in dependencies[current_snippet_id]:
-            reverse_dependencies[dependent_snippet_id] -= 1
-            if reverse_dependencies[dependent_snippet_id] == 0:
-                queue.append(dependent_snippet_id)
-
-    # Ensure the requested identifier is included
-    if identifier not in order:
-        log.warn(f"Snippet with ID {identifier} does not exist or has no valid dependencies.")
-        return ""
 
     # Filter and collect snippets starting from the required snippet using BFS
     result_order = []
@@ -74,24 +54,9 @@ def get_dependents(identifier: str, context_limit: int):
     snippets = {row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()}
 
     dependencies = defaultdict(list)
-    reverse_dependencies = defaultdict(int)
 
     for snippet_id, dependency_id in get_all_dependencies():
         dependencies[dependency_id].append(snippet_id)  # Reverse the direction of dependency
-        reverse_dependencies[snippet_id] += 1
-
-    # Perform topological sort for dependents
-    order = []
-    queue = deque([snippet_id for snippet_id in snippets if reverse_dependencies[snippet_id] == 0])
-
-    while queue:
-        current_snippet_id = queue.popleft()
-        order.append(current_snippet_id)
-
-        for dependent_snippet_id in dependencies[current_snippet_id]:
-            reverse_dependencies[dependent_snippet_id] -= 1
-            if reverse_dependencies[dependent_snippet_id] == 0:
-                queue.append(dependent_snippet_id)
 
     # Ensure the requested identifier is included
     if identifier not in snippets:

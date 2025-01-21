@@ -79,12 +79,15 @@ def process_imports(filepath, modulepath, full_content, snippets):
                 for obj in objects:
                     if re.search(rf'\b{re.escape(obj)}\b', snippet_content):
                         amount = module_path.count("../")
+                        if module_path.startswith("./"): amount += 1
+                        elif amount > 0: amount += 1
+
                         modified_module_path = module_path
                         if "./" in module_path:
-                            modified_module_path = modulepath
+                            modified_module_path = modulepath.replace(".", "/")
                             for _ in range(amount):
                                 modified_module_path = os.path.dirname(modified_module_path)
-                            modified_module_path = (f"{modulepath}{modified_module_path}"
+                            modified_module_path = (f"{modified_module_path}/{module_path}"
                                                     .replace("../", "")
                                                     .replace("./", ""))
                         modified_module_path = modified_module_path.replace("/", ".")
