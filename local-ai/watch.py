@@ -3,8 +3,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
 from lib.chunking import chunk_python_code
-from lib.chunking import chunk_react_code
-from lib.chunking import chunk_json_file
+from lib.chunking import chunk_js_ts_code
 from lib.processing import process_imports, get_git_tracked_files
 from lib.db import upsert_snippet
 from lib.log import log
@@ -12,6 +11,15 @@ from lib.log import log
 directory = sys.argv[1]
 filepaths = get_git_tracked_files(directory)
 source_directory = sys.argv[2]
+
+config = {
+    "file_processors": {
+        ".py": chunk_python_code,
+        ".js": chunk_js_ts_code,
+        ".ts": chunk_js_ts_code,
+        ".tsx": chunk_js_ts_code
+    }
+}
 
 def read_file(filepath):
     try:
@@ -36,21 +44,17 @@ def process_file(filepath):
     local_file_path = filepath.removeprefix(f"{directory}/")
     modulepath = (local_file_path
                   .removeprefix(f"{source_directory}/")
-                  .replace("/", ".")
-                  .removesuffix(".py")
-                  .removesuffix(".ts")
-                  .removesuffix(".tsx")
-                  .removesuffix(".js"))
+                  .replace("/", "."))
+    for ext in config["file_processors"]:
+        if filepath.endswith(ext):
+            modulepath = modulepath.removesuffix(ext)
+            break
 
     chunks = []
 
-    if filepath.endswith(".py"):
-        chunks = chunk_python_code(text)
-    elif filepath.endswith((".js", ".ts", ".tsx")):
-        chunks = chunk_react_code(text)
-    elif filepath.endswith(".json"):
-        chunks = chunk_json_file(text)
-    else:
+    processor = config["file_processors"].get(os.path.splitext(filepath)[1])
+    if not processor:
+        log.info(f"No processor found for file {filepath}. Skipping.")
         return
 
     log.info(f"Processing snippet: {modulepath}")

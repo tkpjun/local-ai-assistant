@@ -2,7 +2,7 @@
 import sys
 import os
 
-from lib.chunking import chunk_python_code, chunk_react_code, chunk_json_file
+from lib.chunking import chunk_python_code, chunk_js_ts_code
 from lib.processing import process_imports, get_git_tracked_files
 from lib.log import log
 from lib.db import init_sqlite_tables, upsert_snippet
@@ -11,10 +11,9 @@ from lib.qdrant import insert_snippets
 config = {
     "file_processors": {
         ".py": chunk_python_code,
-        ".js": chunk_react_code,
-        ".ts": chunk_react_code,
-        ".tsx": chunk_react_code,
-        ".json": chunk_json_file
+        ".js": chunk_js_ts_code,
+        ".ts": chunk_js_ts_code,
+        ".tsx": chunk_js_ts_code
     }
 }
 
