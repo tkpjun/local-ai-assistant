@@ -2,6 +2,7 @@ import re
 import subprocess
 from lib.db import upsert_dependency
 from lib.log import log
+import tomli
 
 def get_git_tracked_files(root_dir):
     result = subprocess.run(
@@ -12,6 +13,23 @@ def get_git_tracked_files(root_dir):
         text=True
     )
     return result.stdout.splitlines()
+
+def get_project_dependencies(filepaths):
+    dependencies = set()
+    dev_dependencies = set()
+    for filepath in filepaths:
+        if filepath.endswith(".toml"):
+            with open(filepath, "rb") as file:
+                data = tomli.load(file)
+            print(data)
+            deps_from_file = data["project"]["dependencies"]
+            for line in deps_from_file:
+                dependencies.add(line)
+            dev_deps_from_file = data["project"].get("dev-dependencies", [])
+            for line in dev_deps_from_file:
+                dev_dependencies.add(line)
+    return (dependencies, dev_dependencies)
+
 
 # Function to process imports and store dependencies
 def process_imports(filepath, modulepath, full_content, snippets):

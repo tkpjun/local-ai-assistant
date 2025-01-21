@@ -2,9 +2,9 @@ import json
 
 import gradio as gr
 import requests
-from lib.aggregating import get_dependencies
+from lib.aggregating import get_dependencies, get_dependents
 import sqlite3
-from lib.processing import get_git_tracked_files
+from lib.processing import get_git_tracked_files, get_project_dependencies
 import sys
 from dotenv import load_dotenv
 import os
@@ -30,10 +30,10 @@ def fetch_snippets_by_source(source):
 # Fetch file paths from the database
 snippet_ids = fetch_snippet_ids()
 files = get_git_tracked_files(directory)
+definition_files = [f"{directory}/{file}" for file in files if file.endswith("pyproject.toml")]
+(project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
 
 # TODO
-#  - project dependencies (package.json, pyproject.toml...)
-#  - project tree including exportable names
 #  - get_dependents function
 
 def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff):
@@ -55,7 +55,15 @@ When coding, you just write out the task and then write snippets of code changes
 If the project exceeds expectations, everyone will be happy and you will get a reward.
 """
 
-    prompt += "# Project structure:\n"
+    prompt += "\n# Project dependencies:\n"
+    for dependency in project_dependencies:
+        prompt += f"- {dependency}\n"
+
+    prompt += "\n# Dev dependencies:\n"
+    for dependency in dev_dependencies:
+        prompt += f"- {dependency}\n"
+
+    prompt += "\n# Project structure:\n"
     for file in files:
         prompt += f"- {file}\n"
         snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
@@ -69,6 +77,10 @@ If the project exceeds expectations, everyone will be happy and you will get a r
         context_snippets += get_dependencies(file_reference, context_cutoff)
     if file_options_2 == "Dependencies":
         context_snippets += get_dependencies(file_reference_2, context_cutoff)
+    if file_options == "Dependents":
+        context_snippets += get_dependents(file_reference, context_cutoff)
+    if file_options_2 == "Dependents":
+        context_snippets += get_dependents(file_reference_2, context_cutoff)
     if file_reference is not None:
         cursor.execute("SELECT content, source, start_line, end_line FROM snippets WHERE id = ?", (file_reference,))
         snippet = cursor.fetchone()
@@ -88,7 +100,7 @@ If the project exceeds expectations, everyone will be happy and you will get a r
         context_snippets = [dep for dep in context_snippets if (dep[1], dep[2], dep[3]) not in seen and not seen.add((dep[1], dep[2], dep[3]))]
         context_snippets = sorted(context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2]))
 
-        prompt += f"# Relevant snippets of project code denoted in Markdown:\n\n"
+        prompt += f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
         current_source = ""
         for content, source, _, _ in context_snippets:
             if source != current_source:
@@ -105,7 +117,7 @@ If the project exceeds expectations, everyone will be happy and you will get a r
 
     history_applied = 0
     history_index = -1
-    prompt += "# Chat history:\n\n"
+    prompt += "\n# Chat history:\n\n"
     while history_applied < history_cutoff and len(history) >= -history_index:
         prompt += f"User:\n{history[history_index][0]}\nYou:\n{history[history_index][1]}\n"
         history_applied += len(history[history_index][0]) + len(history[history_index][1])
