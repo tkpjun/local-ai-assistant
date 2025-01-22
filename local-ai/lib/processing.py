@@ -4,6 +4,7 @@ from lib.db import upsert_dependency
 from lib.log import log
 import tomli
 import os
+import json
 
 def get_git_tracked_files(root_dir):
     result = subprocess.run(
@@ -29,6 +30,15 @@ def get_project_dependencies(filepaths):
             dev_deps_from_file = data["project"].get("dev-dependencies", [])
             for line in dev_deps_from_file:
                 dev_dependencies.add(line)
+        elif filepath.endswith(".json"):
+            with open(filepath, "r") as file:
+                data = json.load(file)
+            deps_from_file = data.get("dependencies", {})
+            for dep, version in deps_from_file.items():
+                dependencies.add(f"{dep}: {version}")
+            dev_deps_from_file = data.get("devDependencies", {})
+            for dep, version in dev_deps_from_file.items():
+                dev_dependencies.add(f"{dep}: {version}")
     return (dependencies, dev_dependencies)
 
 

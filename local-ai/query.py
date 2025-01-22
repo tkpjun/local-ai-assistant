@@ -33,7 +33,7 @@ files = get_git_tracked_files(directory)
 definition_files = [f"{directory}/{file}" for file in files if file.endswith("pyproject.toml") or file.endswith('package.json')]
 (project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
 
-def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff):
+def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options):
     history = history or []  # Ensure history is not None
     prompt = """# Context:
 You're an elite software developer. You're pair programming with User over chat.
@@ -52,22 +52,24 @@ When coding, you just write out the task and then write snippets of code changes
 If the project exceeds expectations, everyone will be happy and you will get a reward.
 """
 
-    prompt += "\n# Project dependencies:\n"
-    for dependency in project_dependencies:
-        prompt += f"- {dependency}\n"
+    if "Include project dependencies" in options:
+        prompt += "\n# Project dependencies:\n"
+        for dependency in project_dependencies:
+            prompt += f"- {dependency}\n"
 
-    prompt += "\n# Dev dependencies:\n"
-    for dependency in dev_dependencies:
-        prompt += f"- {dependency}\n"
+        prompt += "\n# Dev dependencies:\n"
+        for dependency in dev_dependencies:
+            prompt += f"- {dependency}\n"
 
-    prompt += "\n# Project structure:\n"
-    for file in files:
-        prompt += f"- {file}\n"
-        snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
-        if ".test." in file or ".test-" in file:
-            continue
-        for name in snippet_names:
-            prompt += f"  - {name}\n"
+    if "Include file structure" in options:
+        prompt += "\n# Project structure:\n"
+        for file in files:
+            prompt += f"- {file}\n"
+            snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
+            if ".test." in file or ".test-" in file:
+                continue
+            for name in snippet_names:
+                prompt += f"  - {name}\n"
 
     context_snippets = []
     file_order = []
@@ -123,6 +125,8 @@ If the project exceeds expectations, everyone will be happy and you will get a r
 
     prompt += f"User:\n{user_message}\n"
 
+    print(prompt)
+
     response = requests.post(
         os.getenv("LLM_QUERY_ENDPOINT"),
         json={"model": os.getenv("FAST_LLM"), "prompt": prompt},
@@ -144,7 +148,7 @@ If the project exceeds expectations, everyone will be happy and you will get a r
                 continue
 
 # Create a Gradio chat interface with streaming
-with gr.Blocks() as chat_interface:
+with gr.Blocks(fill_height=True) as chat_interface:
     gr.Markdown("## 💬 Chat with Your Local LLM")
 
     with gr.Row():
@@ -152,6 +156,7 @@ with gr.Blocks() as chat_interface:
             chatbot = gr.Chatbot(elem_id="chatbot", min_height=800)
             user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
         with gr.Column(scale=1, min_width=400):
+            options = gr.CheckboxGroup(choices=["Include project dependencies", "Include file structure"], label="Options")
             with gr.Row():
                 history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
                 context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
@@ -165,7 +170,7 @@ with gr.Blocks() as chat_interface:
                     file_options_2 = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
 
     # Handle user input and display the streaming response
-    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff], outputs=chatbot)
+    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options], outputs=chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()
