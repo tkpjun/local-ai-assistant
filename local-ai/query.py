@@ -36,15 +36,14 @@ definition_files = [f"{directory}/{file}" for file in files if file.endswith("py
 def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options):
     history = history or []  # Ensure history is not None
     prompt = """# Context:
-You're an elite software developer. You're pair programming with User over chat.
-Propose readable, elegant ahd testable solutions that offload complexity to appropriate libraries.
-Modularize code into different files based on its dependencies, denoted in Markdown.
-Use the project structure for clues about correct modularization.
+You're a software developer with 10 years of experience.
+Propose readable, elegant ahd testable solutions that offload complexity to project libraries.
+Modularize code according to existing project structure when functions get too large.
 
-Every programming task should lead to a Potentially Releasable Product Increment.
+Every programming task should lead to working software.
+If User's instructions are too vague for you to write working software, ask clarifying questions before writing code.
 If User gives you a task that seems like more than one Jira ticket, break it down into independent sub-tasks, and solve them one at a time.
-Don't solve more than one task per message, ask User for confirmation before proceeding to the next.
-If User's instructions are too vague for you to write good software, ask clarifying questions before writing code.
+Never solve more than one task per message. Ask User for confirmation before proceeding to the next.
 
 User is also a professional and doesn't need instruction unless they ask for it.
 When coding, you just write out the task and then write snippets of code changes.
@@ -125,8 +124,6 @@ If the project exceeds expectations, everyone will be happy and you will get a r
 
     prompt += f"User:\n{user_message}\n"
 
-    print(prompt)
-
     response = requests.post(
         os.getenv("LLM_QUERY_ENDPOINT"),
         json={"model": os.getenv("FAST_LLM"), "prompt": prompt},
@@ -147,19 +144,35 @@ If the project exceeds expectations, everyone will be happy and you will get a r
             except json.JSONDecodeError:
                 continue
 
+def delete_message(chatbot):
+    if chatbot and len(chatbot) > 0:
+        chatbot.pop()  # Remove the last message from the history
+    return chatbot
+
+def retry_last_message(chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options):
+    if chatbot and len(chatbot) > 0:
+        (user_message, _) = chatbot.pop()
+        generator = stream_chat(chatbot, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options)
+        for chat_history in generator:
+            yield chat_history
+    else:
+        yield chatbot
+
 # Create a Gradio chat interface with streaming
 with gr.Blocks(fill_height=True) as chat_interface:
-    gr.Markdown("## 💬 Chat with Your Local LLM")
-
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(elem_id="chatbot", min_height=800)
+            chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all")
             user_input = gr.Textbox(placeholder="Type your question here...", label="Your Message")
+            with gr.Row():
+                retry_button = gr.Button("Retry response")
+                delete_button = gr.Button("Delete message")
+                clear_button = gr.ClearButton([user_input, chatbot], value="Clear history")
         with gr.Column(scale=1, min_width=400):
-            options = gr.CheckboxGroup(choices=["Include project dependencies", "Include file structure"], label="Options")
             with gr.Row():
                 history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
                 context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
+            options = gr.CheckboxGroup(choices=["Include project dependencies", "Include file structure"], label="Options")
             with gr.Row():
                 with gr.Column():
                     file_reference = gr.Dropdown(label="Select snippet by module", choices=snippet_ids, value=None, allow_custom_value=True)
@@ -169,8 +182,19 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     file_reference_2 = gr.Dropdown(label="Select snippet by module", choices=snippet_ids, value=None, allow_custom_value=True)
                     file_options_2 = gr.Radio(choices=["Snippet", "Dependencies", "Dependents"], value="Snippet", label="Include")
 
+
     # Handle user input and display the streaming response
-    user_input.submit(fn=stream_chat, inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options], outputs=chatbot)
+    user_input.submit(
+        fn=stream_chat,
+        inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options],
+        outputs=chatbot
+    ).then(
+        lambda: "",  # This lambda function returns an empty string
+        None,
+        user_input  # Update the user_input field with the empty string
+    )
+    delete_button.click(delete_message, [chatbot], chatbot)
+    retry_button.click(retry_last_message, [chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options], chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()
