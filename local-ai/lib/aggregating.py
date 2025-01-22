@@ -49,6 +49,7 @@ def get_dependencies(identifier: str, context_limit: int):
 
     return result
 
+
 def get_dependents(identifier: str, context_limit: int):
     # Fetch all snippets and their dependencies
     snippets = {row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()}
@@ -56,7 +57,9 @@ def get_dependents(identifier: str, context_limit: int):
     dependencies = defaultdict(list)
 
     for snippet_id, dependency_id in get_all_dependencies():
-        dependencies[dependency_id].append(snippet_id)  # Reverse the direction of dependency
+        dependencies[dependency_id].append(
+            snippet_id
+        )  # Reverse the direction of dependency
 
     # Ensure the requested identifier is included
     if identifier not in snippets:

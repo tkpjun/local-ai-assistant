@@ -5,6 +5,7 @@ import os
 
 load_dotenv(override=False)
 
+
 # Custom Embeddings class to use Ollama
 class OllamaEmbeddings(Embeddings):
     def __init__(self, model):

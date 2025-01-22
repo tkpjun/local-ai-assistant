@@ -17,19 +17,21 @@ config = {
         ".py": chunk_python_code,
         ".js": chunk_js_ts_code,
         ".ts": chunk_js_ts_code,
-        ".tsx": chunk_js_ts_code
+        ".tsx": chunk_js_ts_code,
     }
 }
+
 
 def read_file(filepath):
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError as e:
-        log.error(f'Failed to read file {filepath}: {e}')
+        log.error(f"Failed to read file {filepath}: {e}")
     except Exception as e:
-        log.error(f'An error occurred while reading file {filepath}: {e}')
+        log.error(f"An error occurred while reading file {filepath}: {e}")
     return None
+
 
 # Function to process code snippets
 def process_file(filepath):
@@ -42,9 +44,7 @@ def process_file(filepath):
     text = read_file(filepath)
 
     local_file_path = filepath.removeprefix(f"{directory}/")
-    modulepath = (local_file_path
-                  .removeprefix(f"{source_directory}/")
-                  .replace("/", "."))
+    modulepath = local_file_path.removeprefix(f"{source_directory}/").replace("/", ".")
     for ext in config["file_processors"]:
         if filepath.endswith(ext):
             modulepath = modulepath.removesuffix(ext)
@@ -62,10 +62,13 @@ def process_file(filepath):
 
     for identifier, content, first_line, last_line in chunks:
         log.info(f"Processing snippet: {modulepath + '.' + identifier}")
-        upsert_snippet(modulepath, identifier, filepath, content, first_line, last_line, "code")
+        upsert_snippet(
+            modulepath, identifier, filepath, content, first_line, last_line, "code"
+        )
 
     chunks.append((None, text, 1, text.count("\n") + 1))
     process_imports(filepath, modulepath, text, chunks)
+
 
 # File system event handler
 class CodebaseEventHandler(FileSystemEventHandler):
@@ -76,6 +79,7 @@ class CodebaseEventHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
             process_file(event.src_path)
+
 
 # Start the file watcher
 def start_watcher():
@@ -91,6 +95,7 @@ def start_watcher():
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
+
 
 # Start the watcher
 start_watcher()
