@@ -8,6 +8,7 @@ from lib.processing import get_git_tracked_files, get_project_dependencies
 import sys
 from dotenv import load_dotenv
 import os
+import subprocess
 
 load_dotenv(override=False)
 
@@ -16,6 +17,68 @@ directory = sys.argv[1]
 # Connect to SQLite database (or create it if it doesn't exist)
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
+
+def get_ollama_model_names():
+    try:
+        # Call `ollama list` and capture the output
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
+        # Extract lines of the output (skip the header line)
+        lines = result.stdout.strip().split("\n")[1:]
+        # Extract the model names (first column of each line)
+        model_names = [line.split()[0] for line in lines if line]
+        return model_names
+    except subprocess.CalledProcessError as e:
+        print(f"Error while running 'ollama list': {e}")
+        return []
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return []
+
+def get_running_ollama_models():
+    try:
+        # Call `ollama ps` and capture the output
+        result = subprocess.run(["ollama", "ps"], capture_output=True, text=True, check=True)
+        # Extract lines of the output (skip the header line)
+        lines = result.stdout.strip().split("\n")[1:]
+        # Extract model names and IDs (first and second columns)
+        running_models = {}
+        for line in lines:
+            if line.strip():  # Skip empty lines
+                parts = line.split()  # Split by whitespace
+                model_name = parts[0]
+                model_id = parts[1]
+                running_models[model_name] = model_id
+
+        return running_models
+    except subprocess.CalledProcessError as e:
+        print(f"Error while running 'ollama ps': {e}")
+        return {}
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return {}
+
+def stop_ollama_model_by_name(name):
+    try:
+        # Call `ollama stop` with the model name
+        subprocess.run(["ollama", "stop", name], capture_output=True, text=True, check=True)
+        return f"Successfully stopped model '{name}'."
+    except subprocess.CalledProcessError as e:
+        return f"Error stopping model '{name}': {e.stderr.strip()}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+def run_ollama_model_in_background(name):
+    try:
+        # Run `ollama run` in the background
+        process = subprocess.Popen(
+            ["ollama", "run", name],
+            stdout=subprocess.PIPE,  # Redirect stdout
+            stderr=subprocess.PIPE,  # Redirect stderr
+            text=True,               # Decode output to strings
+        )
+        return f"Model '{name}' is running in the background (PID: {process.pid})."
+    except Exception as e:
+        return f"Failed to run model '{name}': {str(e)}"
 
 def fetch_snippet_ids():
     cursor.execute("SELECT id FROM snippets WHERE source LIKE ? ORDER BY id", (f"{directory}%",))
@@ -27,13 +90,13 @@ def fetch_snippets_by_source(source):
     names = cursor.fetchall()
     return [name[0] for name in names]
 
-# Fetch file paths from the database
+installed_llms = get_ollama_model_names()
 snippet_ids = fetch_snippet_ids()
 files = get_git_tracked_files(directory)
 definition_files = [f"{directory}/{file}" for file in files if file.endswith("pyproject.toml") or file.endswith('package.json')]
 (project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
 
-def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options):
+def stream_chat(history, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options, selected_llm):
     history = history or []  # Ensure history is not None
     prompt = """# Context:
 You're a software developer with 10 years of experience.
@@ -124,19 +187,39 @@ If the project exceeds expectations, everyone will be happy and you will get a r
 
     prompt += f"User:\n{user_message}\n"
 
+    running_llms = get_running_ollama_models()
+    if not running_llms.get(selected_llm):
+        for llm in running_llms.keys():
+            stop_ollama_model_by_name(llm)
+        run_ollama_model_in_background(selected_llm)
+
     response = requests.post(
         os.getenv("LLM_QUERY_ENDPOINT"),
-        json={"model": os.getenv("FAST_LLM"), "prompt": prompt},
+        json={"model": selected_llm, "prompt": prompt},
         stream=True
     )
     response.raise_for_status()
     # Stream the response line by line
     bot_message = ""
+    thinking = 0
     for line in response.iter_lines():
         if line:
             try:
                 data = json.loads(line.decode("utf-8"))
-                bot_message += data["response"]
+                if (data["response"]) == "<think>":
+                    thinking = 1
+                if (data["response"]) == "</think>":
+                    bot_message = ""
+                    thinking = 0
+                if thinking == 0:
+                    bot_message += data["response"]
+                else:
+                    dots = ""
+                    for dot in range(thinking):
+                        dots += "."
+                    bot_message = f"Thinking{dots}"
+                    thinking = (thinking + 1) % 3 + 1
+
                 history[-1] = (user_message, bot_message)  # Update the bot response
                 yield history
                 if data.get("done"):
@@ -149,10 +232,10 @@ def delete_message(chatbot):
         chatbot.pop()  # Remove the last message from the history
     return chatbot
 
-def retry_last_message(chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options):
+def retry_last_message(chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options, selected_llm):
     if chatbot and len(chatbot) > 0:
         (user_message, _) = chatbot.pop()
-        generator = stream_chat(chatbot, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options)
+        generator = stream_chat(chatbot, user_message, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options, selected_llm)
         for chat_history in generator:
             yield chat_history
     else:
@@ -169,6 +252,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 delete_button = gr.Button("Delete message")
                 clear_button = gr.ClearButton([user_input, chatbot], value="Clear history")
         with gr.Column(scale=1, min_width=400):
+            selected_llm = gr.Dropdown(label="Selected LLM", choices=installed_llms, value=installed_llms[0])
             with gr.Row():
                 history_cutoff = gr.Number(label="History Cutoff (max length)", value=10000, precision=0)
                 context_cutoff = gr.Number(label="Context Cutoff (max length)", value=10000, precision=0)
@@ -186,7 +270,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
     # Handle user input and display the streaming response
     user_input.submit(
         fn=stream_chat,
-        inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options],
+        inputs=[chatbot, user_input, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options, selected_llm],
         outputs=chatbot
     ).then(
         lambda: "",  # This lambda function returns an empty string
@@ -194,7 +278,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
         user_input  # Update the user_input field with the empty string
     )
     delete_button.click(delete_message, [chatbot], chatbot)
-    retry_button.click(retry_last_message, [chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options], chatbot)
+    retry_button.click(retry_last_message, [chatbot, file_reference, file_options, file_reference_2, file_options_2, history_cutoff, context_cutoff, options, selected_llm], chatbot)
 
 # Launch the Gradio app
 chat_interface.launch()

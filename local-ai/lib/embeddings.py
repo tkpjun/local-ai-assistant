@@ -7,11 +7,14 @@ load_dotenv(override=False)
 
 # Custom Embeddings class to use Ollama
 class OllamaEmbeddings(Embeddings):
+    def __init__(self, model):
+        self.model = model
+
     def _get_embedding(self, text):
         """Helper method to get embedding from Ollama."""
         response = requests.post(
             os.getenv("LLM_EMBED_ENDPOINT"),
-            json={"model": os.getenv("FAST_LLM"), "input": text},
+            json={"model": self.model, "input": text},
         )
         response.raise_for_status()
         return response.json()["embeddings"][0]
