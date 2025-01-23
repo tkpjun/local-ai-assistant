@@ -133,16 +133,16 @@ def stream_chat(
 ):
     history = history or []  # Ensure history is not None
     prompt = """# Context:
-You're a software developer with 10 years of experience. 
-You are doing pair programming with User. Your task is to write code for User.
-Propose readable, elegant ahd testable solutions that offload complexity to project libraries.
-Modularize code according to existing project structure when functions get too large.
-Ask clarifying questions instead of writing code if User is vague.
+You're an AI assistant. Your task is to write code for User. 
+You can also make helpful suggestions to improve the existing codebase.
 
-User is also a professional and doesn't need instruction unless they ask for it.
-When coding, just write out the task and then write snippets of code changes.
+You write code that is:
+- readable
+- testable
+- modularized based on project structure
+- using mainstream libraries
 
-If the project exceeds expectations, everyone will be happy and you will get a reward.
+Communicate in code snippets as User does.
 """
 
     if "Include project dependencies" in options:
