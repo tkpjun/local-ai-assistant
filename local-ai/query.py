@@ -18,6 +18,18 @@ directory = sys.argv[1]
 conn = sqlite3.connect("../codebase.db", check_same_thread=False)
 cursor = conn.cursor()
 
+system_prompt = """
+You're an AI assistant. Your task is to write code for User. 
+You can also make helpful suggestions to improve the existing codebase.
+
+You write code that is:
+- readable
+- testable
+- modularized based on project structure
+- using mainstream libraries
+
+Communicate in code snippets as User does.
+"""
 
 def get_ollama_model_names():
     try:
@@ -132,37 +144,26 @@ def stream_chat(
     selected_llm,
 ):
     history = history or []  # Ensure history is not None
-    prompt = """# Context:
-You're an AI assistant. Your task is to write code for User. 
-You can also make helpful suggestions to improve the existing codebase.
-
-You write code that is:
-- readable
-- testable
-- modularized based on project structure
-- using mainstream libraries
-
-Communicate in code snippets as User does.
-"""
+    context_prompt = ""
 
     if "Include project dependencies" in options:
-        prompt += "\n# Project dependencies:\n"
+        context_prompt += "\n# Project dependencies:\n"
         for dependency in project_dependencies:
-            prompt += f"- {dependency}\n"
+            context_prompt += f"- {dependency}\n"
 
-        prompt += "\n# Dev dependencies:\n"
+        context_prompt += "\n# Dev dependencies:\n"
         for dependency in dev_dependencies:
-            prompt += f"- {dependency}\n"
+            context_prompt += f"- {dependency}\n"
 
     if "Include file structure" in options:
-        prompt += "\n# Project structure:\n"
+        context_prompt += "\n# Project structure:\n"
         for file in files:
-            prompt += f"- {file}\n"
+            context_prompt += f"- {file}\n"
             snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
             if ".test." in file or ".test-" in file:
                 continue
             for name in snippet_names:
-                prompt += f"  - {name}\n"
+                context_prompt += f"  - {name}\n"
 
     context_snippets = []
     file_order = []
@@ -207,33 +208,20 @@ Communicate in code snippets as User does.
             context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2])
         )
 
-        prompt += f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
+        context_prompt += f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
         current_source = ""
         for content, source, _, _ in context_snippets:
             if source != current_source:
                 if current_source:
-                    prompt += "```\n\n"
-                prompt += f"## {source}:\n```\n"
+                    context_prompt += "```\n\n"
+                context_prompt += f"## {source}:\n```\n"
                 current_source = source
             else:
-                prompt += "\n"
-            prompt += f"{content}\n"
-        prompt += "```"
+                context_prompt += "\n"
+            context_prompt += f"{content}\n"
+        context_prompt += "```"
 
-    history_applied = 0
-    history_index = -1
-    prompt += "\n# Chat history:\n\n"
-    while history_applied < history_cutoff and len(history) >= -history_index:
-        prompt += (
-            f"User:\n{history[history_index][0]}\nYou:\n{history[history_index][1]}\n"
-        )
-        history_applied += len(history[history_index][0]) + len(
-            history[history_index][1]
-        )
-        history_index -= 1
     history.append((user_message, ""))
-
-    prompt += f"User:\n{user_message}\n"
 
     running_llms = get_running_ollama_models()
     if not running_llms.get(selected_llm):
@@ -241,9 +229,16 @@ Communicate in code snippets as User does.
             stop_ollama_model_by_name(llm)
         run_ollama_model_in_background(selected_llm)
 
+    chat_messages = [{ "role": "system", "content": system_prompt }]
+    if context_prompt != "":
+        chat_messages.append({ "role": "user", "content": context_prompt })
+    for (user_message, llm_response) in history:
+        chat_messages.append({ "role": "user", "content": user_message })
+        if llm_response != "":
+            chat_messages.append({ "role": "assistant", "content": llm_response })
     response = requests.post(
-        os.getenv("LLM_QUERY_ENDPOINT"),
-        json={"model": selected_llm, "prompt": prompt},
+        os.getenv("LLM_CHAT_ENDPOINT"),
+        json={"model": selected_llm, "messages": chat_messages},
         stream=True,
     )
     response.raise_for_status()
@@ -254,13 +249,13 @@ Communicate in code snippets as User does.
         if line:
             try:
                 data = json.loads(line.decode("utf-8"))
-                if (data["response"]) == "<think>":
+                if (data["message"]["content"]) == "<think>":
                     thinking = 1
-                if (data["response"]) == "</think>":
+                if (data["message"]["content"]) == "</think>":
                     bot_message = ""
                     thinking = 0
                 if thinking == 0:
-                    bot_message += data["response"]
+                    bot_message += data["message"]["content"]
                 else:
                     dots = ""
                     for dot in range(thinking):
