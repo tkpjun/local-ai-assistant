@@ -385,11 +385,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
             selected_llm,
         ],
         outputs=chatbot,
-    ).then(
-        lambda: "",  # This lambda function returns an empty string
-        None,
-        user_input,  # Update the user_input field with the empty string
     )
+    user_input.submit(lambda x: gr.update(value=""), None, [user_input], queue=False)
     delete_button.click(delete_message, [chatbot], chatbot)
     retry_button.click(
         retry_last_message,
