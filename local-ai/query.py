@@ -9,9 +9,11 @@ import sys
 from dotenv import load_dotenv
 import os
 import subprocess
+import tiktoken
 
 load_dotenv(override=False)
 
+tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = sys.argv[1]
 
 # Connect to SQLite database (or create it if it doesn't exist)
@@ -229,13 +231,19 @@ def stream_chat(
             stop_ollama_model_by_name(llm)
         run_ollama_model_in_background(selected_llm)
 
+    insert_index = 1 if context_prompt == "" else 2
     chat_messages = [{ "role": "system", "content": system_prompt }]
+    tokens_used = 0
     if context_prompt != "":
         chat_messages.append({ "role": "user", "content": context_prompt })
-    for (user_message, llm_response) in history:
-        chat_messages.append({ "role": "user", "content": user_message })
+    for (old_user_message, llm_response) in reversed(history):
         if llm_response != "":
-            chat_messages.append({ "role": "assistant", "content": llm_response })
+            tokens_used += len(tokenizer.encode(text=llm_response))
+            if tokens_used <= history_cutoff:
+                chat_messages.insert(insert_index, { "role": "assistant", "content": llm_response })
+        tokens_used += len(tokenizer.encode(text=old_user_message))
+        if tokens_used <= history_cutoff:
+            chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
     response = requests.post(
         os.getenv("LLM_CHAT_ENDPOINT"),
         json={"model": selected_llm, "messages": chat_messages},
@@ -328,10 +336,10 @@ with gr.Blocks(fill_height=True) as chat_interface:
             )
             with gr.Row():
                 history_cutoff = gr.Number(
-                    label="History Cutoff (max length)", value=10000, precision=0
+                    label="History Cutoff (max length)", value=3000, precision=0
                 )
                 context_cutoff = gr.Number(
-                    label="Context Cutoff (max length)", value=10000, precision=0
+                    label="Context Cutoff (max length)", value=3000, precision=0
                 )
             options = gr.CheckboxGroup(
                 choices=["Include project dependencies", "Include file structure"],
