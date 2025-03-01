@@ -132,8 +132,7 @@ definition_files = [
 ]
 (project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
 
-
-def stream_chat(
+def build_prompt(
     history,
     user_message,
     file_reference,
@@ -204,7 +203,7 @@ def stream_chat(
             dep
             for dep in context_snippets
             if (dep[1], dep[2], dep[3]) not in seen
-            and not seen.add((dep[1], dep[2], dep[3]))
+               and not seen.add((dep[1], dep[2], dep[3]))
         ]
         context_snippets = sorted(
             context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2])
@@ -244,9 +243,61 @@ def stream_chat(
         tokens_used += len(tokenizer.encode(text=old_user_message))
         if tokens_used <= history_cutoff:
             chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
+    return {"model": selected_llm, "messages": chat_messages}
+
+def build_prompt_code(
+        history,
+        user_message,
+        file_reference,
+        file_options,
+        file_reference_2,
+        file_options_2,
+        history_cutoff,
+        context_cutoff,
+        options,
+        selected_llm,
+):
+    prompt = build_prompt(history,
+                          user_message,
+                          file_reference,
+                          file_options,
+                          file_reference_2,
+                          file_options_2,
+                          history_cutoff,
+                          context_cutoff,
+                          options,
+                          selected_llm)
+    markdown = ""
+    for message in prompt["messages"]:
+        markdown += f"# {message["role"]}:\n{message["content"]}\n\n"
+    return markdown
+
+def stream_chat(
+    history,
+    user_message,
+    file_reference,
+    file_options,
+    file_reference_2,
+    file_options_2,
+    history_cutoff,
+    context_cutoff,
+    options,
+    selected_llm,
+):
+    history = history or []  # Ensure history is not None
+    prompt = build_prompt(history,
+                          user_message,
+                          file_reference,
+                          file_options,
+                          file_reference_2,
+                          file_options_2,
+                          history_cutoff,
+                          context_cutoff,
+                          options,
+                          selected_llm)
     response = requests.post(
         os.getenv("LLM_CHAT_ENDPOINT"),
-        json={"model": selected_llm, "messages": chat_messages},
+        json=prompt,
         stream=True,
     )
     response.raise_for_status()
@@ -320,16 +371,23 @@ def retry_last_message(
 with gr.Blocks(fill_height=True) as chat_interface:
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all")
-            user_input = gr.Textbox(
-                placeholder="Type your question here...", label="Your Message"
-            )
-            with gr.Row():
-                retry_button = gr.Button("Retry response")
-                delete_button = gr.Button("Delete message")
-                clear_button = gr.ClearButton(
-                    [user_input, chatbot], value="Clear history"
+            with gr.Tab(label="Chat"):
+                chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all")
+                user_input = gr.Textbox(
+                    placeholder="Type your question here...", label="Your Message"
                 )
+                with gr.Row():
+                    retry_button = gr.Button("Retry response")
+                    delete_button = gr.Button("Delete message")
+                    clear_button = gr.ClearButton(
+                        [user_input, chatbot], value="Clear history"
+                    )
+            with gr.Tab(label="Prompt (JSON)"):
+                prompt_box = gr.Json()
+                build_prompt_button = gr.Button("Generate")
+            with gr.Tab(label="Prompt (Markdown)"):
+                prompt_md_box = gr.Markdown()
+                build_prompt_md_button = gr.Button("Generate")
         with gr.Column(scale=1, min_width=400):
             selected_llm = gr.Dropdown(
                 label="Selected LLM", choices=installed_llms, value=installed_llms[0]
@@ -405,6 +463,34 @@ with gr.Blocks(fill_height=True) as chat_interface:
             selected_llm,
         ],
         chatbot,
+    )
+    build_prompt_button.click(
+        build_prompt,
+        inputs=[chatbot,
+                user_input,
+                file_reference,
+                file_options,
+                file_reference_2,
+                file_options_2,
+                history_cutoff,
+                context_cutoff,
+                options,
+                selected_llm],
+        outputs=prompt_box
+    )
+    build_prompt_md_button.click(
+        build_prompt_code,
+        inputs=[chatbot,
+                user_input,
+                file_reference,
+                file_options,
+                file_reference_2,
+                file_options_2,
+                history_cutoff,
+                context_cutoff,
+                options,
+                selected_llm],
+        outputs=prompt_md_box
     )
 
 # Launch the Gradio app
