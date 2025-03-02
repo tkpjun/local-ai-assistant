@@ -269,7 +269,7 @@ def build_prompt_code(
                           selected_llm)
     markdown = ""
     for message in prompt["messages"]:
-        markdown += f"# {message["role"]}:\n{message["content"]}\n\n"
+        markdown += f"# {message["role"]}:\n{message["content"]}\n\n***\n\n"
     return markdown
 
 def stream_chat(
