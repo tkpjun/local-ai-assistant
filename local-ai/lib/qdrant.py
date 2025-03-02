@@ -2,7 +2,7 @@ from langchain.schema import Document
 from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from lib.embeddings import OllamaEmbeddings
+from lib.ollama import OllamaEmbeddings
 from dotenv import load_dotenv
 import os
 

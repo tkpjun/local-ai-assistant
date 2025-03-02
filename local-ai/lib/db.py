@@ -84,3 +84,29 @@ def get_all_snippets():
 def get_all_dependencies():
     cursor.execute("SELECT snippet_id, dependency_name FROM dependencies")
     return cursor.fetchall()
+
+
+def fetch_snippet_ids(directory):
+    cursor.execute(
+        "SELECT id FROM snippets WHERE source LIKE ? ORDER BY id", (f"{directory}%",)
+    )
+    snippet_ids = cursor.fetchall()
+    return [snippet_id[0] for snippet_id in snippet_ids]
+
+
+def fetch_snippets_by_source(source):
+    cursor.execute(
+        "SELECT name FROM snippets WHERE source = ? AND name IS NOT NULL and name != '_imports_' ORDER BY name",
+        (source,),
+    )
+    names = cursor.fetchall()
+    return [name[0] for name in names]
+
+
+def fetch_snippet_by_id(id):
+    cursor.execute(
+        "SELECT content, source, start_line, end_line FROM snippets WHERE id = ?",
+        (id,),
+    )
+    snippet = cursor.fetchone()
+    return snippet

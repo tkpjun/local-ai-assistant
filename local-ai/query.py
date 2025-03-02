@@ -3,22 +3,18 @@ import json
 import gradio as gr
 import requests
 from lib.aggregating import get_dependencies, get_dependents
-import sqlite3
 from lib.processing import get_git_tracked_files, get_project_dependencies
 import sys
 from dotenv import load_dotenv
 import os
-import subprocess
 import tiktoken
+from lib.ollama import run_ollama_model_in_background, get_running_ollama_models, stop_ollama_model_by_name, get_ollama_model_names
+from lib.db import fetch_snippet_ids, fetch_snippets_by_source, fetch_snippet_by_id
 
 load_dotenv(override=False)
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = sys.argv[1]
-
-# Connect to SQLite database (or create it if it doesn't exist)
-conn = sqlite3.connect("../codebase.db", check_same_thread=False)
-cursor = conn.cursor()
 
 system_prompt = """
 You're an AI assistant. Your task is to write code for User. 
@@ -33,97 +29,9 @@ You write code that is:
 Communicate in code snippets as User does.
 """
 
-def get_ollama_model_names():
-    try:
-        # Call `ollama list` and capture the output
-        result = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, check=True
-        )
-        # Extract lines of the output (skip the header line)
-        lines = result.stdout.strip().split("\n")[1:]
-        # Extract the model names (first column of each line)
-        model_names = [line.split()[0] for line in lines if line]
-        return model_names
-    except subprocess.CalledProcessError as e:
-        print(f"Error while running 'ollama list': {e}")
-        return []
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return []
-
-
-def get_running_ollama_models():
-    try:
-        # Call `ollama ps` and capture the output
-        result = subprocess.run(
-            ["ollama", "ps"], capture_output=True, text=True, check=True
-        )
-        # Extract lines of the output (skip the header line)
-        lines = result.stdout.strip().split("\n")[1:]
-        # Extract model names and IDs (first and second columns)
-        running_models = {}
-        for line in lines:
-            if line.strip():  # Skip empty lines
-                parts = line.split()  # Split by whitespace
-                model_name = parts[0]
-                model_id = parts[1]
-                running_models[model_name] = model_id
-
-        return running_models
-    except subprocess.CalledProcessError as e:
-        print(f"Error while running 'ollama ps': {e}")
-        return {}
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return {}
-
-
-def stop_ollama_model_by_name(name):
-    try:
-        # Call `ollama stop` with the model name
-        subprocess.run(
-            ["ollama", "stop", name], capture_output=True, text=True, check=True
-        )
-        return f"Successfully stopped model '{name}'."
-    except subprocess.CalledProcessError as e:
-        return f"Error stopping model '{name}': {e.stderr.strip()}"
-    except Exception as e:
-        return f"Unexpected error: {str(e)}"
-
-
-def run_ollama_model_in_background(name):
-    try:
-        # Run `ollama run` in the background
-        process = subprocess.Popen(
-            ["ollama", "run", name],
-            stdout=subprocess.PIPE,  # Redirect stdout
-            stderr=subprocess.PIPE,  # Redirect stderr
-            text=True,  # Decode output to strings
-        )
-        return f"Model '{name}' is running in the background (PID: {process.pid})."
-    except Exception as e:
-        return f"Failed to run model '{name}': {str(e)}"
-
-
-def fetch_snippet_ids():
-    cursor.execute(
-        "SELECT id FROM snippets WHERE source LIKE ? ORDER BY id", (f"{directory}%",)
-    )
-    snippet_ids = cursor.fetchall()
-    return [snippet_id[0] for snippet_id in snippet_ids]
-
-
-def fetch_snippets_by_source(source):
-    cursor.execute(
-        "SELECT name FROM snippets WHERE source = ? AND name IS NOT NULL and name != '_imports_' ORDER BY name",
-        (source,),
-    )
-    names = cursor.fetchall()
-    return [name[0] for name in names]
-
 
 installed_llms = get_ollama_model_names()
-snippet_ids = fetch_snippet_ids()
+snippet_ids = fetch_snippet_ids(directory)
 files = get_git_tracked_files(directory)
 definition_files = [
     f"{directory}/{file}"
@@ -140,7 +48,6 @@ def build_prompt(
     file_reference_2,
     file_options_2,
     history_cutoff,
-    context_cutoff,
     options,
     selected_llm,
 ):
@@ -170,27 +77,17 @@ def build_prompt(
     file_order = []
 
     if file_options == "Dependencies":
-        context_snippets += get_dependencies(file_reference, context_cutoff)
+        context_snippets += get_dependencies(file_reference)
     if file_options_2 == "Dependencies":
-        context_snippets += get_dependencies(file_reference_2, context_cutoff)
+        context_snippets += get_dependencies(file_reference_2)
     if file_options == "Dependents":
-        context_snippets += get_dependents(file_reference, context_cutoff)
+        context_snippets += get_dependents(file_reference)
     if file_options_2 == "Dependents":
-        context_snippets += get_dependents(file_reference_2, context_cutoff)
+        context_snippets += get_dependents(file_reference_2)
     if file_reference is not None:
-        cursor.execute(
-            "SELECT content, source, start_line, end_line FROM snippets WHERE id = ?",
-            (file_reference,),
-        )
-        snippet = cursor.fetchone()
-        context_snippets.append(snippet)
+        context_snippets.append(fetch_snippet_by_id(file_reference))
     if file_reference_2 is not None:
-        cursor.execute(
-            "SELECT content, source, start_line, end_line FROM snippets WHERE id = ?",
-            (file_reference_2,),
-        )
-        snippet = cursor.fetchone()
-        context_snippets.append(snippet)
+        context_snippets.append(fetch_snippet_by_id(file_reference_2))
 
     if context_snippets:
         for _, source, _, _ in context_snippets:
@@ -222,8 +119,6 @@ def build_prompt(
             context_prompt += f"{content}\n"
         context_prompt += "```"
 
-    history.append((user_message, ""))
-
     running_llms = get_running_ollama_models()
     if not running_llms.get(selected_llm):
         for llm in running_llms.keys():
@@ -243,6 +138,8 @@ def build_prompt(
         tokens_used += len(tokenizer.encode(text=old_user_message))
         if tokens_used <= history_cutoff:
             chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
+    if user_message:
+        chat_messages.append({ "role": "user", "content": user_message })
     return {"model": selected_llm, "messages": chat_messages}
 
 def build_prompt_code(
@@ -253,7 +150,6 @@ def build_prompt_code(
         file_reference_2,
         file_options_2,
         history_cutoff,
-        context_cutoff,
         options,
         selected_llm,
 ):
@@ -264,7 +160,6 @@ def build_prompt_code(
                           file_reference_2,
                           file_options_2,
                           history_cutoff,
-                          context_cutoff,
                           options,
                           selected_llm)
     markdown = ""
@@ -281,7 +176,6 @@ def stream_chat(
     file_reference_2,
     file_options_2,
     history_cutoff,
-    context_cutoff,
     options,
     selected_llm,
 ):
@@ -293,7 +187,6 @@ def stream_chat(
                           file_reference_2,
                           file_options_2,
                           history_cutoff,
-                          context_cutoff,
                           options,
                           selected_llm)
     response = requests.post(
@@ -303,6 +196,7 @@ def stream_chat(
     )
     response.raise_for_status()
     # Stream the response line by line
+    history.append((user_message, ""))
     bot_message = ""
     thinking = 0
     for line in response.iter_lines():
@@ -344,7 +238,6 @@ def retry_last_message(
     file_reference_2,
     file_options_2,
     history_cutoff,
-    context_cutoff,
     options,
     selected_llm,
 ):
@@ -358,7 +251,6 @@ def retry_last_message(
             file_reference_2,
             file_options_2,
             history_cutoff,
-            context_cutoff,
             options,
             selected_llm,
         )
@@ -393,15 +285,11 @@ with gr.Blocks(fill_height=True) as chat_interface:
             selected_llm = gr.Dropdown(
                 label="Selected LLM", choices=installed_llms, value=installed_llms[0]
             )
-            with gr.Row():
-                history_cutoff = gr.Number(
-                    label="History Cutoff (max length)", value=3000, precision=0
-                )
-                context_cutoff = gr.Number(
-                    label="Context Cutoff (max length)", value=3000, precision=0
-                )
+            history_cutoff = gr.Number(
+                label="Chat history max tokens", value=3000, precision=0
+            )
             options = gr.CheckboxGroup(
-                choices=["Include project dependencies", "Include file structure"],
+                choices=["Project dependencies", "File structure"],
                 label="Options",
             )
             with gr.Row():
@@ -442,7 +330,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
             file_reference_2,
             file_options_2,
             history_cutoff,
-            context_cutoff,
             options,
             selected_llm,
         ],
@@ -459,7 +346,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
             file_reference_2,
             file_options_2,
             history_cutoff,
-            context_cutoff,
             options,
             selected_llm,
         ],
@@ -474,7 +360,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 file_reference_2,
                 file_options_2,
                 history_cutoff,
-                context_cutoff,
                 options,
                 selected_llm],
         outputs=prompt_box
@@ -488,7 +373,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 file_reference_2,
                 file_options_2,
                 history_cutoff,
-                context_cutoff,
                 options,
                 selected_llm],
         outputs=prompt_md_box
