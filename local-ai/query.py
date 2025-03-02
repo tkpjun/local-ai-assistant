@@ -269,7 +269,8 @@ def build_prompt_code(
                           selected_llm)
     markdown = ""
     for message in prompt["messages"]:
-        markdown += f"# {message["role"]}:\n{message["content"]}\n\n***\n\n"
+        token_amount = len(tokenizer.encode(text=message["content"]))
+        markdown += f"\n# (tokens: {token_amount}) {message["role"]}:\n{message["content"]}\n\n***\n\n"
     return markdown
 
 def stream_chat(
