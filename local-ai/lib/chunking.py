@@ -27,7 +27,7 @@ def chunk_python_code(text):
             seen_non_import_line = True
 
         # Check for lines with zero indentation (new top-level block)
-        if stripped_line and not line.startswith(" "):  # Indentation level 0
+        if stripped_line and not line.startswith(" ") and not line.startswith(")"):  # Indentation level 0
             if current_chunk:  # If a chunk is being built, process it
                 # Process the previous chunk
                 chunk_text = "\n".join(current_chunk).strip()
