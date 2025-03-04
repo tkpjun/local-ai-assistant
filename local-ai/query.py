@@ -140,7 +140,7 @@ def build_prompt(
             chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
     if user_message:
         chat_messages.append({ "role": "user", "content": user_message })
-    return {"model": selected_llm, "messages": chat_messages}
+    return {"model": selected_llm, "messages": chat_messages, "options": { "num_ctx": 8192 }}
 
 def build_prompt_code(
         history,
