@@ -47,7 +47,7 @@ def build_prompt(
     file_options,
     file_reference_2,
     file_options_2,
-    history_cutoff,
+    context_limit,
     options,
     selected_llm,
 ):
@@ -126,21 +126,16 @@ def build_prompt(
         run_ollama_model_in_background(selected_llm)
 
     insert_index = 1 if context_prompt == "" else 2
-    chat_messages = [{ "role": "system", "content": system_prompt }]
-    tokens_used = 0
+    system_prompt_with_context = system_prompt
     if context_prompt != "":
-        chat_messages.append({ "role": "user", "content": context_prompt })
-    for (old_user_message, llm_response) in reversed(history):
-        if llm_response != "":
-            tokens_used += len(tokenizer.encode(text=llm_response))
-            if tokens_used <= history_cutoff:
-                chat_messages.insert(insert_index, { "role": "assistant", "content": llm_response })
-        tokens_used += len(tokenizer.encode(text=old_user_message))
-        if tokens_used <= history_cutoff:
-            chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
+        system_prompt_with_context += f"\n\n{context_prompt}"
+    chat_messages = [{ "role": "system", "content": system_prompt_with_context }]
+    for (old_user_message, llm_response) in history:
+        chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
+        chat_messages.insert(insert_index, { "role": "assistant", "content": llm_response })
     if user_message:
         chat_messages.append({ "role": "user", "content": user_message })
-    return {"model": selected_llm, "messages": chat_messages, "options": { "num_ctx": 8192 }}
+    return {"model": selected_llm, "messages": chat_messages, "options": { "num_ctx": context_limit }}
 
 def build_prompt_code(
         history,
@@ -149,7 +144,7 @@ def build_prompt_code(
         file_options,
         file_reference_2,
         file_options_2,
-        history_cutoff,
+        context_limit,
         options,
         selected_llm,
 ):
@@ -159,7 +154,7 @@ def build_prompt_code(
                           file_options,
                           file_reference_2,
                           file_options_2,
-                          history_cutoff,
+                          context_limit,
                           options,
                           selected_llm)
     markdown = ""
@@ -175,7 +170,7 @@ def stream_chat(
     file_options,
     file_reference_2,
     file_options_2,
-    history_cutoff,
+    context_limit,
     options,
     selected_llm,
 ):
@@ -186,7 +181,7 @@ def stream_chat(
                           file_options,
                           file_reference_2,
                           file_options_2,
-                          history_cutoff,
+                          context_limit,
                           options,
                           selected_llm)
     response = requests.post(
@@ -237,7 +232,7 @@ def retry_last_message(
     file_options,
     file_reference_2,
     file_options_2,
-    history_cutoff,
+    context_limit,
     options,
     selected_llm,
 ):
@@ -250,7 +245,7 @@ def retry_last_message(
             file_options,
             file_reference_2,
             file_options_2,
-            history_cutoff,
+            context_limit,
             options,
             selected_llm,
         )
@@ -285,8 +280,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
             selected_llm = gr.Dropdown(
                 label="Selected LLM", choices=installed_llms, value=installed_llms[0]
             )
-            history_cutoff = gr.Number(
-                label="Chat history max tokens", value=3000, precision=0
+            context_limit = gr.Number(
+                label="Context limit in tokens", value=8192, precision=0
             )
             options = gr.CheckboxGroup(
                 choices=["Project dependencies", "File structure"],
@@ -329,7 +324,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
             file_options,
             file_reference_2,
             file_options_2,
-            history_cutoff,
+            context_limit,
             options,
             selected_llm,
         ],
@@ -345,7 +340,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
             file_options,
             file_reference_2,
             file_options_2,
-            history_cutoff,
+            context_limit,
             options,
             selected_llm,
         ],
@@ -359,7 +354,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 file_options,
                 file_reference_2,
                 file_options_2,
-                history_cutoff,
+                context_limit,
                 options,
                 selected_llm],
         outputs=prompt_box
@@ -372,7 +367,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 file_options,
                 file_reference_2,
                 file_options_2,
-                history_cutoff,
+                context_limit,
                 options,
                 selected_llm],
         outputs=prompt_md_box
