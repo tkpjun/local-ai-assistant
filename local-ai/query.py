@@ -243,7 +243,10 @@ def stream_chat(
                     bot_message += data["message"]["content"]
                     history[-1]["content"] = bot_message
                 else:
-                    if history[-1]["metadata"]["title"] == "Thinking":
+                    if (
+                        history[-1]["role"] != "assistant"
+                        or history[-1]["metadata"]["title"] == "Thinking"
+                    ):
                         bot_message = ""
                         history.append(
                             {
