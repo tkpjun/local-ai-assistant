@@ -6,6 +6,7 @@ import subprocess
 
 load_dotenv(override=False)
 
+
 def get_ollama_model_names():
     try:
         # Call `ollama list` and capture the output

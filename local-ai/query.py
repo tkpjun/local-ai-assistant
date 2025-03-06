@@ -8,7 +8,12 @@ import sys
 from dotenv import load_dotenv
 import os
 import tiktoken
-from lib.ollama import run_ollama_model_in_background, get_running_ollama_models, stop_ollama_model_by_name, get_ollama_model_names
+from lib.ollama import (
+    run_ollama_model_in_background,
+    get_running_ollama_models,
+    stop_ollama_model_by_name,
+    get_ollama_model_names,
+)
 from lib.db import fetch_snippet_ids, fetch_snippets_by_source, fetch_snippet_by_id
 
 load_dotenv(override=False)
@@ -39,6 +44,7 @@ definition_files = [
     if file.endswith("pyproject.toml") or file.endswith("package.json")
 ]
 (project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
+
 
 def build_prompt(
     history,
@@ -100,13 +106,15 @@ def build_prompt(
             dep
             for dep in context_snippets
             if (dep[1], dep[2], dep[3]) not in seen
-               and not seen.add((dep[1], dep[2], dep[3]))
+            and not seen.add((dep[1], dep[2], dep[3]))
         ]
         context_snippets = sorted(
             context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2])
         )
 
-        context_prompt += f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
+        context_prompt += (
+            f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
+        )
         current_source = ""
         for content, source, _, _ in context_snippets:
             if source != current_source:
@@ -128,16 +136,31 @@ def build_prompt(
     system_prompt_with_context = system_prompt
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
-    chat_messages = [{ "role": "system", "content": system_prompt_with_context }]
+    chat_messages = [{"role": "system", "content": system_prompt_with_context}]
     for message in history:
-        print(message)
         if message["metadata"]["title"] != "Thinking":
             chat_messages.append(message)
     if user_message:
-        chat_messages.append({ "role": "user", "content": user_message })
-    return {"model": selected_llm, "messages": chat_messages, "options": { "num_ctx": context_limit }}
+        chat_messages.append({"role": "user", "content": user_message})
+    return {
+        "model": selected_llm,
+        "messages": chat_messages,
+        "options": {"num_ctx": context_limit},
+    }
+
 
 def build_prompt_code(
+    history,
+    user_message,
+    file_reference,
+    file_options,
+    file_reference_2,
+    file_options_2,
+    context_limit,
+    options,
+    selected_llm,
+):
+    prompt = build_prompt(
         history,
         user_message,
         file_reference,
@@ -147,21 +170,13 @@ def build_prompt_code(
         context_limit,
         options,
         selected_llm,
-):
-    prompt = build_prompt(history,
-                          user_message,
-                          file_reference,
-                          file_options,
-                          file_reference_2,
-                          file_options_2,
-                          context_limit,
-                          options,
-                          selected_llm)
+    )
     markdown = ""
     for message in prompt["messages"]:
         token_amount = len(tokenizer.encode(text=message["content"]))
         markdown += f"\n# (tokens: {token_amount}) {message["role"]}:\n{message["content"]}\n\n***\n\n"
     return markdown
+
 
 def stream_chat(
     history,
@@ -175,15 +190,17 @@ def stream_chat(
     selected_llm,
 ):
     history = history or []  # Ensure history is not None
-    prompt = build_prompt(history,
-                          user_message,
-                          file_reference,
-                          file_options,
-                          file_reference_2,
-                          file_options_2,
-                          context_limit,
-                          options,
-                          selected_llm)
+    prompt = build_prompt(
+        history,
+        user_message,
+        file_reference,
+        file_options,
+        file_reference_2,
+        file_options_2,
+        context_limit,
+        options,
+        selected_llm,
+    )
     response = requests.post(
         os.getenv("LLM_CHAT_ENDPOINT"),
         json=prompt,
@@ -198,7 +215,13 @@ def stream_chat(
         if line:
             if first:
                 first = False
-                history.append({ "role": "user", "content": user_message, "metadata": { "title": None} })
+                history.append(
+                    {
+                        "role": "user",
+                        "content": user_message,
+                        "metadata": {"title": None},
+                    }
+                )
             try:
                 data = json.loads(line.decode("utf-8"))
                 if (data["message"]["content"]) == "<think>":
@@ -210,13 +233,25 @@ def stream_chat(
 
                 if thinking:
                     if history[-1]["metadata"]["title"] != "Thinking":
-                        history.append({ "role": "assistant", "content": bot_message, "metadata": { "title": "Thinking"}})
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": bot_message,
+                                "metadata": {"title": "Thinking"},
+                            }
+                        )
                     bot_message += data["message"]["content"]
                     history[-1]["content"] = bot_message
                 else:
                     if history[-1]["metadata"]["title"] == "Thinking":
                         bot_message = ""
-                        history.append({ "role": "assistant", "content": bot_message, "metadata": { "title": None}})
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": bot_message,
+                                "metadata": {"title": None},
+                            }
+                        )
                     bot_message += data["message"]["content"]
                     history[-1]["content"] = bot_message
                 yield history
@@ -266,7 +301,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
     with gr.Row():
         with gr.Column(scale=3):
             with gr.Tab(label="Chat"):
-                chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all", type="messages")
+                chatbot = gr.Chatbot(
+                    elem_id="chatbot", min_height=800, editable="all", type="messages"
+                )
                 user_input = gr.Textbox(
                     placeholder="Type your question here...", label="Your Message"
                 )
@@ -317,7 +354,10 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 retry_button = gr.Button("Retry response", size="md")
                 delete_button = gr.Button("Delete message", size="md")
                 clear_button = gr.ClearButton(
-                    [user_input, chatbot], value="Clear history", size="md", variant="stop"
+                    [user_input, chatbot],
+                    value="Clear history",
+                    size="md",
+                    variant="stop",
                 )
 
     # Handle user input and display the streaming response
@@ -354,29 +394,33 @@ with gr.Blocks(fill_height=True) as chat_interface:
     )
     build_prompt_button.click(
         build_prompt,
-        inputs=[chatbot,
-                user_input,
-                file_reference,
-                file_options,
-                file_reference_2,
-                file_options_2,
-                context_limit,
-                options,
-                selected_llm],
-        outputs=prompt_box
+        inputs=[
+            chatbot,
+            user_input,
+            file_reference,
+            file_options,
+            file_reference_2,
+            file_options_2,
+            context_limit,
+            options,
+            selected_llm,
+        ],
+        outputs=prompt_box,
     )
     build_prompt_md_button.click(
         build_prompt_code,
-        inputs=[chatbot,
-                user_input,
-                file_reference,
-                file_options,
-                file_reference_2,
-                file_options_2,
-                context_limit,
-                options,
-                selected_llm],
-        outputs=prompt_md_box
+        inputs=[
+            chatbot,
+            user_input,
+            file_reference,
+            file_options,
+            file_reference_2,
+            file_options_2,
+            context_limit,
+            options,
+            selected_llm,
+        ],
+        outputs=prompt_md_box,
     )
 
 # Launch the Gradio app

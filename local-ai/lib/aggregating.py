@@ -13,7 +13,9 @@ def fetch_snippets(snippet_ids: List[str]) -> Dict[str, Tuple[str, str, int, int
     :param snippet_ids: List of snippet identifiers to fetch.
     :return: Dictionary mapping snippet identifier to (source, content, start_line, end_line).
     """
-    all_snippets = {row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()}
+    all_snippets = {
+        row[0]: (row[1], row[2], row[3], row[4]) for row in get_all_snippets()
+    }
     return {sid: details for sid, details in all_snippets.items() if sid in snippet_ids}
 
 
@@ -113,7 +115,9 @@ def build_reverse_dependency_graph() -> Dict[str, List[str]]:
     return graph
 
 
-def resolve_dependents_order(start_snippet_id: str, reverse_graph: Dict[str, List[str]]) -> List[str]:
+def resolve_dependents_order(
+    start_snippet_id: str, reverse_graph: Dict[str, List[str]]
+) -> List[str]:
     """
     Resolve the order of dependents starting from a given identifier using BFS.
 
@@ -150,4 +154,3 @@ def get_dependents(start_snippet_id: str) -> List[Tuple[str, str, int, int]]:
     reverse_graph = build_reverse_dependency_graph()
     result_order = resolve_dependents_order(start_snippet_id, reverse_graph)
     return collect_dependencies(result_order)
-
