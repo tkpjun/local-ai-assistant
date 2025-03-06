@@ -125,14 +125,14 @@ def build_prompt(
             stop_ollama_model_by_name(llm)
         run_ollama_model_in_background(selected_llm)
 
-    insert_index = 1 if context_prompt == "" else 2
     system_prompt_with_context = system_prompt
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
     chat_messages = [{ "role": "system", "content": system_prompt_with_context }]
-    for (old_user_message, llm_response) in history:
-        chat_messages.insert(insert_index, { "role": "user", "content": old_user_message })
-        chat_messages.insert(insert_index, { "role": "assistant", "content": llm_response })
+    for message in history:
+        print(message)
+        if message["metadata"]["title"] != "Thinking":
+            chat_messages.append(message)
     if user_message:
         chat_messages.append({ "role": "user", "content": user_message })
     return {"model": selected_llm, "messages": chat_messages, "options": { "num_ctx": context_limit }}
@@ -191,28 +191,34 @@ def stream_chat(
     )
     response.raise_for_status()
     # Stream the response line by line
-    history.append((user_message, ""))
     bot_message = ""
-    thinking = 0
+    thinking = False
+    first = True
     for line in response.iter_lines():
         if line:
+            if first:
+                first = False
+                history.append({ "role": "user", "content": user_message, "metadata": { "title": None} })
             try:
                 data = json.loads(line.decode("utf-8"))
                 if (data["message"]["content"]) == "<think>":
-                    thinking = 1
+                    thinking = True
+                    continue
                 if (data["message"]["content"]) == "</think>":
-                    bot_message = ""
-                    thinking = 0
-                if thinking == 0:
-                    bot_message += data["message"]["content"]
-                else:
-                    dots = ""
-                    for dot in range(thinking):
-                        dots += "."
-                    bot_message = f"Thinking{dots}"
-                    thinking = (thinking + 1) % 3 + 1
+                    thinking = False
+                    continue
 
-                history[-1] = (user_message, bot_message)  # Update the bot response
+                if thinking:
+                    if history[-1]["metadata"]["title"] != "Thinking":
+                        history.append({ "role": "assistant", "content": bot_message, "metadata": { "title": "Thinking"}})
+                    bot_message += data["message"]["content"]
+                    history[-1]["content"] = bot_message
+                else:
+                    if history[-1]["metadata"]["title"] == "Thinking":
+                        bot_message = ""
+                        history.append({ "role": "assistant", "content": bot_message, "metadata": { "title": None}})
+                    bot_message += data["message"]["content"]
+                    history[-1]["content"] = bot_message
                 yield history
                 if data.get("done"):
                     break
@@ -260,7 +266,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
     with gr.Row():
         with gr.Column(scale=3):
             with gr.Tab(label="Chat"):
-                chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all")
+                chatbot = gr.Chatbot(elem_id="chatbot", min_height=800, editable="all", type="messages")
                 user_input = gr.Textbox(
                     placeholder="Type your question here...", label="Your Message"
                 )
