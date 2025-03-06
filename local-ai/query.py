@@ -60,6 +60,10 @@ def initialize_data():
     )
 
 
+init_sqlite_tables()
+initialize_data()
+
+
 def build_prompt(
     history,
     user_message,
@@ -448,8 +452,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
     ingest_button.click(click_ingest, outputs=[file_reference, file_reference_2])
 
-init_sqlite_tables(directory)
-initialize_data()
 start_watcher(directory, source_directory)
 # Launch the Gradio app
 chat_interface.launch()

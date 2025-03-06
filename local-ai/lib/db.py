@@ -1,12 +1,13 @@
 import sqlite3
 from typing import Optional
 
+sqlite3.threadsafety = 3
 # Connect to SQLite database (or create it if it doesn't exist)
-conn = sqlite3.connect("../codebase.db", check_same_thread=False)
+conn = sqlite3.connect("codebase.db", check_same_thread=False)
 cursor = conn.cursor()
 
 
-def init_sqlite_tables(directory):
+def init_sqlite_tables():
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS snippets (
@@ -21,7 +22,6 @@ def init_sqlite_tables(directory):
     )
     """
     )
-    cursor.execute("DELETE FROM snippets WHERE SOURCE LIKE ?", (f"{directory}%",))
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS dependencies (
@@ -32,6 +32,11 @@ def init_sqlite_tables(directory):
     )
     """
     )
+    conn.commit()
+
+
+def cleanup_data(directory):
+    cursor.execute("DELETE FROM snippets WHERE SOURCE LIKE ?", (f"{directory}%",))
     cursor.execute(
         "DELETE FROM dependencies as d WHERE NOT EXISTS (SELECT 1 FROM snippets as s WHERE d.snippet_id = s.id)"
     )

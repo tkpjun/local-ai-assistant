@@ -4,7 +4,7 @@ import os
 from lib.chunking import chunk_python_code, chunk_js_ts_code
 from lib.processing import process_imports, get_git_tracked_files
 from lib.log import log
-from lib.db import init_sqlite_tables, upsert_snippet
+from lib.db import init_sqlite_tables, upsert_snippet, cleanup_data
 from lib.qdrant import insert_snippets
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -34,9 +34,7 @@ def read_file(filepath):
 def process_file(directory, source_directory, file):
     filepath = f"{directory}/{file}"
     local_file_path = filepath.removeprefix(f"{directory}/")
-    modulepath = local_file_path.removeprefix(f"{source_directory}/").replace(
-        "/", "."
-    )
+    modulepath = local_file_path.removeprefix(f"{source_directory}/").replace("/", ".")
     for ext in config["file_processors"]:
         if filepath.endswith(ext):
             modulepath = modulepath.removesuffix(ext)
@@ -55,9 +53,7 @@ def process_file(directory, source_directory, file):
     chunks = processor(text)
 
     log.info(f"Processing snippet: {modulepath}")
-    upsert_snippet(
-        modulepath, None, filepath, text, 1, text.count("\n") + 1, "file"
-    )
+    upsert_snippet(modulepath, None, filepath, text, 1, text.count("\n") + 1, "file")
 
     snippets = []
     for identifier, content, first_line, last_line in chunks:
@@ -72,7 +68,9 @@ def process_file(directory, source_directory, file):
 
     insert_snippets(snippets)
 
+
 def ingest_codebase(directory, source_directory):
+    cleanup_data(directory)
     filepaths = get_git_tracked_files(directory)
     for file in filepaths:
         process_file(directory, source_directory, file)
@@ -83,11 +81,15 @@ def start_watcher(directory, source_directory):
     class CodebaseEventHandler(FileSystemEventHandler):
         def on_modified(self, event):
             if not event.is_directory:
-                process_file(directory, source_directory, event.src_path[len(directory) + 1:])
+                process_file(
+                    directory, source_directory, event.src_path[len(directory) + 1 :]
+                )
 
         def on_created(self, event):
             if not event.is_directory:
-                process_file(directory, source_directory, event.src_path[len(directory) + 1:])
+                process_file(
+                    directory, source_directory, event.src_path[len(directory) + 1 :]
+                )
 
     event_handler = CodebaseEventHandler()
     observer = Observer()
