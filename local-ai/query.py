@@ -14,12 +14,19 @@ from lib.ollama import (
     stop_ollama_model_by_name,
     get_ollama_model_names,
 )
-from lib.db import fetch_snippet_ids, fetch_snippets_by_source, fetch_snippet_by_id
+from lib.db import (
+    fetch_snippet_ids,
+    fetch_snippets_by_source,
+    fetch_snippet_by_id,
+    init_sqlite_tables,
+)
+from lib.ingest import ingest_codebase
 
 load_dotenv(override=False)
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = sys.argv[1]
+source_directory = sys.argv[2]
 
 system_prompt = """
 You're an AI assistant. Your task is to write code for User. 
@@ -36,14 +43,21 @@ Communicate in code snippets as User does.
 
 
 installed_llms = get_ollama_model_names()
-snippet_ids = fetch_snippet_ids(directory)
-files = get_git_tracked_files(directory)
-definition_files = [
-    f"{directory}/{file}"
-    for file in files
-    if file.endswith("pyproject.toml") or file.endswith("package.json")
-]
-(project_dependencies, dev_dependencies) = get_project_dependencies(definition_files)
+snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
+
+
+def initialize_data():
+    global files, snippet_ids, project_dependencies, dev_dependencies
+    snippet_ids = fetch_snippet_ids(directory)
+    files = get_git_tracked_files(directory)
+    definition_files = [
+        f"{directory}/{file}"
+        for file in files
+        if file.endswith("pyproject.toml") or file.endswith("package.json")
+    ]
+    (project_dependencies, dev_dependencies) = get_project_dependencies(
+        definition_files
+    )
 
 
 def build_prompt(
@@ -362,6 +376,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     size="md",
                     variant="stop",
                 )
+                ingest_button = gr.Button("Ingest code", size="md")
 
     # Handle user input and display the streaming response
     user_input.submit(
@@ -426,5 +441,14 @@ with gr.Blocks(fill_height=True) as chat_interface:
         outputs=prompt_md_box,
     )
 
+    def click_ingest():
+        ingest_codebase(directory, source_directory)
+        initialize_data()
+        return (gr.update(choices=snippet_ids), gr.update(choices=snippet_ids))
+
+    ingest_button.click(click_ingest, outputs=[file_reference, file_reference_2])
+
+init_sqlite_tables(directory)
+initialize_data()
 # Launch the Gradio app
 chat_interface.launch()

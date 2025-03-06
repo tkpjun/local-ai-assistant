@@ -70,10 +70,3 @@ def ingest_codebase(directory, source_directory):
         process_imports(filepath, modulepath, text, chunks)
 
         insert_snippets(snippets)
-
-
-directory = sys.argv[1]
-source_directory = sys.argv[2]
-# Create tables
-init_sqlite_tables(directory)
-ingest_codebase(directory, source_directory)

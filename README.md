@@ -34,9 +34,10 @@ brew install pipx
 pipx ensurepath
 brew install poetry
 poetry install
-poetry run python ingest.py [project path] [source directory path]
-poetry run python query.py [project path]
+poetry run python query.py [project path] [source directory path]
 ```
+
+Then click "Ingest code" to initialize the data.
 
 Project path example: `/Users/test/Documents/project-name`
 
