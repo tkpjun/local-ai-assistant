@@ -20,7 +20,7 @@ from lib.db import (
     fetch_snippet_by_id,
     init_sqlite_tables,
 )
-from lib.ingest import ingest_codebase
+from lib.ingest import ingest_codebase, start_watcher
 
 load_dotenv(override=False)
 
@@ -450,5 +450,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
 init_sqlite_tables(directory)
 initialize_data()
+start_watcher(directory, source_directory)
 # Launch the Gradio app
 chat_interface.launch()
