@@ -264,12 +264,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 user_input = gr.Textbox(
                     placeholder="Type your question here...", label="Your Message"
                 )
-                with gr.Row():
-                    retry_button = gr.Button("Retry response")
-                    delete_button = gr.Button("Delete message")
-                    clear_button = gr.ClearButton(
-                        [user_input, chatbot], value="Clear history"
-                    )
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
                 build_prompt_button = gr.Button("Generate")
@@ -313,6 +307,12 @@ with gr.Blocks(fill_height=True) as chat_interface:
                         value="Snippet",
                         label="Include",
                     )
+            with gr.Row():
+                retry_button = gr.Button("Retry response", size="md")
+                delete_button = gr.Button("Delete message", size="md")
+                clear_button = gr.ClearButton(
+                    [user_input, chatbot], value="Clear history", size="md", variant="stop"
+                )
 
     # Handle user input and display the streaming response
     user_input.submit(
