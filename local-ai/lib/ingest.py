@@ -6,7 +6,13 @@ from lib.processing import process_imports, get_git_tracked_files
 from lib.log import log
 from lib.db import init_sqlite_tables, upsert_snippet, cleanup_data
 from lib.qdrant import insert_snippets
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import (
+    FileSystemEventHandler,
+    DirDeletedEvent,
+    FileDeletedEvent,
+    DirMovedEvent,
+    FileMovedEvent,
+)
 from watchdog.observers import Observer
 import time
 
@@ -29,6 +35,11 @@ def read_file(filepath):
     except Exception as e:
         log.error(f"An error occurred while reading file {filepath}: {e}")
     return None
+
+
+def delete_file_snippets(directory, file):
+    filepath = f"{directory}/{file}"
+    cleanup_data(filepath)
 
 
 def process_file(directory, source_directory, file):
@@ -90,6 +101,17 @@ def start_watcher(directory, source_directory):
                 process_file(
                     directory, source_directory, event.src_path[len(directory) + 1 :]
                 )
+
+        def on_deleted(self, event: DirDeletedEvent | FileDeletedEvent) -> None:
+            if not event.is_directory:
+                delete_file_snippets(directory, event.src_path[len(directory) + 1 :])
+
+        def on_moved(self, event: DirMovedEvent | FileMovedEvent) -> None:
+            if not event.is_directory:
+                process_file(
+                    directory, source_directory, event.src_path[len(directory) + 1 :]
+                )
+                delete_file_snippets(directory, event.src_path[len(directory) + 1 :])
 
     event_handler = CodebaseEventHandler()
     observer = Observer()

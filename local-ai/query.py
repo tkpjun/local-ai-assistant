@@ -46,9 +46,14 @@ installed_llms = get_ollama_model_names()
 snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
 
 
-def initialize_data():
-    global files, snippet_ids, project_dependencies, dev_dependencies
+def refresh_snippets():
+    global snippet_ids
     snippet_ids = fetch_snippet_ids(directory)
+
+
+def refresh_data():
+    global files, project_dependencies, dev_dependencies
+    refresh_snippets()
     files = get_git_tracked_files(directory)
     definition_files = [
         f"{directory}/{file}"
@@ -61,7 +66,7 @@ def initialize_data():
 
 
 init_sqlite_tables()
-initialize_data()
+refresh_data()
 
 
 def build_prompt(
@@ -445,9 +450,16 @@ with gr.Blocks(fill_height=True) as chat_interface:
         outputs=prompt_md_box,
     )
 
+    def update_snippets():
+        refresh_snippets()
+        return gr.update(choices=snippet_ids)
+
+    file_reference.focus(update_snippets, outputs=[file_reference])
+    file_reference_2.focus(update_snippets, outputs=[file_reference_2])
+
     def click_ingest():
         ingest_codebase(directory, source_directory)
-        initialize_data()
+        refresh_data()
         return (gr.update(choices=snippet_ids), gr.update(choices=snippet_ids))
 
     ingest_button.click(click_ingest, outputs=[file_reference, file_reference_2])
