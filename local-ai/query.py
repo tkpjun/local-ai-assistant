@@ -303,8 +303,9 @@ def retry_last_message(
     options,
     selected_llm,
 ):
-    if chatbot and len(chatbot) > 0:
-        (user_message, _) = chatbot.pop()
+    if chatbot and len(chatbot) > 1:
+        chatbot.pop()
+        user_message = chatbot.pop()['content']
         generator = stream_chat(
             chatbot,
             user_message,
