@@ -44,6 +44,7 @@ Communicate in code snippets as User does.
 
 installed_llms = get_ollama_model_names()
 snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
+last_file_reference_value = []
 
 
 def refresh_snippets():
@@ -73,9 +74,6 @@ def build_prompt(
     history,
     user_message,
     file_reference,
-    file_options,
-    file_reference_2,
-    file_options_2,
     context_limit,
     options,
     selected_llm,
@@ -105,18 +103,8 @@ def build_prompt(
     context_snippets = []
     file_order = []
 
-    if file_options == "Dependencies":
-        context_snippets += get_dependencies(file_reference)
-    if file_options_2 == "Dependencies":
-        context_snippets += get_dependencies(file_reference_2)
-    if file_options == "Dependents":
-        context_snippets += get_dependents(file_reference)
-    if file_options_2 == "Dependents":
-        context_snippets += get_dependents(file_reference_2)
-    if file_reference is not None:
-        context_snippets.append(fetch_snippet_by_id(file_reference))
-    if file_reference_2 is not None:
-        context_snippets.append(fetch_snippet_by_id(file_reference_2))
+    for snippet_id in file_reference:
+        context_snippets.append(fetch_snippet_by_id(snippet_id))
 
     if context_snippets:
         for _, source, _, _ in context_snippets:
@@ -176,9 +164,6 @@ def build_prompt_code(
     history,
     user_message,
     file_reference,
-    file_options,
-    file_reference_2,
-    file_options_2,
     context_limit,
     options,
     selected_llm,
@@ -187,9 +172,6 @@ def build_prompt_code(
         history,
         user_message,
         file_reference,
-        file_options,
-        file_reference_2,
-        file_options_2,
         context_limit,
         options,
         selected_llm,
@@ -205,9 +187,6 @@ def stream_chat(
     history,
     user_message,
     file_reference,
-    file_options,
-    file_reference_2,
-    file_options_2,
     context_limit,
     options,
     selected_llm,
@@ -217,9 +196,6 @@ def stream_chat(
         history,
         user_message,
         file_reference,
-        file_options,
-        file_reference_2,
-        file_options_2,
         context_limit,
         options,
         selected_llm,
@@ -296,9 +272,6 @@ def delete_message(chatbot):
 def retry_last_message(
     chatbot,
     file_reference,
-    file_options,
-    file_reference_2,
-    file_options_2,
     context_limit,
     options,
     selected_llm,
@@ -310,9 +283,6 @@ def retry_last_message(
             chatbot,
             user_message,
             file_reference,
-            file_options,
-            file_reference_2,
-            file_options_2,
             context_limit,
             options,
             selected_llm,
@@ -358,21 +328,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
                         choices=snippet_ids,
                         value=None,
                         allow_custom_value=True,
+                        multiselect=True
                     )
                     file_options = gr.Radio(
-                        choices=["Snippet", "Dependencies", "Dependents"],
-                        value="Snippet",
-                        label="Include",
-                    )
-            with gr.Row():
-                with gr.Column():
-                    file_reference_2 = gr.Dropdown(
-                        label="Select snippet by module",
-                        choices=snippet_ids,
-                        value=None,
-                        allow_custom_value=True,
-                    )
-                    file_options_2 = gr.Radio(
                         choices=["Snippet", "Dependencies", "Dependents"],
                         value="Snippet",
                         label="Include",
@@ -388,6 +346,26 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 )
                 ingest_button = gr.Button("Ingest code", size="md")
 
+    def on_snippet_input(file_reference, file_options):
+        global last_file_reference_value
+        added = [item for item in file_reference if item not in last_file_reference_value]
+        if len(added) and file_options == "Dependencies":
+            dependencies = get_dependencies(added[0])
+            file_reference.pop()
+            file_reference += [item for item in dependencies]
+            file_reference += added
+        if len(added) and file_options == "Dependents":
+            dependents = get_dependents(added[0])
+            file_reference += [item for item in dependents]
+        last_file_reference_value = file_reference
+        return gr.update(value=file_reference)
+
+    file_reference.input(
+        fn=on_snippet_input,
+        inputs=[file_reference, file_options],
+        outputs=[file_reference]
+    )
+
     # Handle user input and display the streaming response
     user_input.submit(
         fn=stream_chat,
@@ -395,9 +373,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            file_options,
-            file_reference_2,
-            file_options_2,
             context_limit,
             options,
             selected_llm,
@@ -411,9 +386,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
         [
             chatbot,
             file_reference,
-            file_options,
-            file_reference_2,
-            file_options_2,
             context_limit,
             options,
             selected_llm,
@@ -426,9 +398,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            file_options,
-            file_reference_2,
-            file_options_2,
             context_limit,
             options,
             selected_llm,
@@ -441,9 +410,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            file_options,
-            file_reference_2,
-            file_options_2,
             context_limit,
             options,
             selected_llm,
@@ -456,14 +422,13 @@ with gr.Blocks(fill_height=True) as chat_interface:
         return gr.update(choices=snippet_ids)
 
     file_reference.focus(update_snippets, outputs=[file_reference])
-    file_reference_2.focus(update_snippets, outputs=[file_reference_2])
 
     def click_ingest():
         ingest_codebase(directory, source_directory)
         refresh_data()
-        return (gr.update(choices=snippet_ids), gr.update(choices=snippet_ids))
+        return gr.update(choices=snippet_ids)
 
-    ingest_button.click(click_ingest, outputs=[file_reference, file_reference_2])
+    ingest_button.click(click_ingest, outputs=[file_reference])
 
 start_watcher(directory, source_directory)
 # Launch the Gradio app

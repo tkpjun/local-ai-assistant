@@ -58,7 +58,7 @@ def resolve_dependency_order(identifier: str, graph: Dict[str, List[str]]) -> Li
     return result_order[1:]  # Skip the identifier itself
 
 
-def get_dependencies(identifier: str) -> List[Tuple[str, str, int, int]]:
+def get_dependencies(identifier: str) -> List[str]:
     """
     Get dependencies for a given snippet identifier within the specified context limit.
 
@@ -75,30 +75,7 @@ def get_dependencies(identifier: str) -> List[Tuple[str, str, int, int]]:
     for snippet_id in result_order:
         if snippet_id not in snippets:
             continue
-
-        source, content, start_line, end_line = snippets[snippet_id]
-        result.append((content, source, start_line, end_line))
-
-    return result
-
-
-def collect_dependencies(snippet_ids: List[str]) -> List[Tuple[str, str, int, int]]:
-    """
-    Collect dependencies for given snippet identifiers within the specified context limit.
-
-    :param snippet_ids: List of snippet identifiers.
-    :return: List of (content, source, start_line, end_line) tuples for each dependent snippet.
-    """
-    snippets = fetch_snippets(snippet_ids)
-
-    result = []
-
-    for snippet_id in snippet_ids:
-        if snippet_id not in snippets:
-            continue
-
-        source, content, start_line, end_line = snippets[snippet_id]
-        result.append((content, source, start_line, end_line))
+        result.append(snippet_id)
 
     return result
 
@@ -144,7 +121,7 @@ def resolve_dependents_order(
     return result_order[1:]  # Skip the identifier itself
 
 
-def get_dependents(start_snippet_id: str) -> List[Tuple[str, str, int, int]]:
+def get_dependents(start_snippet_id: str) -> List[str]:
     """
     Get dependents for a given snippet identifier within the specified context limit.
 
@@ -152,5 +129,14 @@ def get_dependents(start_snippet_id: str) -> List[Tuple[str, str, int, int]]:
     :return: List of (content, source, start_line, end_line) tuples for each dependent snippet.
     """
     reverse_graph = build_reverse_dependency_graph()
-    result_order = resolve_dependents_order(start_snippet_id, reverse_graph)
-    return collect_dependencies(result_order)
+    snippet_ids = resolve_dependents_order(start_snippet_id, reverse_graph)
+    snippets = fetch_snippets(snippet_ids)
+
+    result = []
+
+    for snippet_id in snippet_ids:
+        if snippet_id not in snippets:
+            continue
+        result.append(snippet_id)
+
+    return result
