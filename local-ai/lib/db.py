@@ -82,13 +82,25 @@ def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_nam
 
 
 def get_all_snippets():
-    cursor.execute("SELECT id, source, content, start_line, end_line FROM snippets")
+    cursor.execute("SELECT id, source, content, start_line, end_line FROM snippets WHERE type = 'code'")
     return cursor.fetchall()
 
 
 def get_all_dependencies():
     cursor.execute("SELECT snippet_id, dependency_name FROM dependencies")
     return cursor.fetchall()
+
+
+def fetch_dependencies(snippet_id):
+    cursor.execute("SELECT d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?", (snippet_id,))
+    snippet_ids = cursor.fetchall()
+    return [snippet_id[0] for snippet_id in snippet_ids]
+
+
+def fetch_dependents(snippet_id):
+    cursor.execute("SELECT snippet_id FROM dependencies WHERE dependency_name = ?", (snippet_id,))
+    snippet_ids = cursor.fetchall()
+    return [snippet_id[0] for snippet_id in snippet_ids]
 
 
 def fetch_snippet_ids(directory):

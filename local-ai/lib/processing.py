@@ -115,6 +115,8 @@ def process_imports(filepath, modulepath, full_content, snippets):
                                     "../", ""
                                 ).replace("./", "")
                             )
+                        if modified_module_path.startswith("/"):
+                            modified_module_path = modified_module_path[1:]
                         modified_module_path = modified_module_path.replace("/", ".")
                         relevant_imports.append(f"{modified_module_path}.{obj}")
             elif filepath.endswith(".py"):

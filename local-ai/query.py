@@ -2,7 +2,6 @@ import json
 
 import gradio as gr
 import requests
-from lib.aggregating import get_dependencies, get_dependents
 from lib.processing import get_git_tracked_files, get_project_dependencies
 import sys
 from dotenv import load_dotenv
@@ -19,6 +18,8 @@ from lib.db import (
     fetch_snippets_by_source,
     fetch_snippet_by_id,
     init_sqlite_tables,
+    fetch_dependencies,
+    fetch_dependents
 )
 from lib.ingest import ingest_codebase, start_watcher
 
@@ -350,12 +351,12 @@ with gr.Blocks(fill_height=True) as chat_interface:
         global last_file_reference_value
         added = [item for item in file_reference if item not in last_file_reference_value]
         if len(added) and file_options == "Dependencies":
-            dependencies = get_dependencies(added[0])
+            dependencies = fetch_dependencies(added[0])
             file_reference.pop()
             file_reference += [item for item in dependencies]
             file_reference += added
         if len(added) and file_options == "Dependents":
-            dependents = get_dependents(added[0])
+            dependents = fetch_dependents(added[0])
             file_reference += [item for item in dependents]
         last_file_reference_value = file_reference
         return gr.update(value=file_reference)
