@@ -5,6 +5,7 @@ sqlite3.threadsafety = 3
 # Connect to SQLite database (or create it if it doesn't exist)
 conn = sqlite3.connect("codebase.db", check_same_thread=False)
 
+
 def init_sqlite_tables():
     cursor = conn.cursor()
     cursor.execute(
@@ -83,7 +84,9 @@ def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_nam
 
 def get_all_snippets():
     cursor = conn.cursor()
-    cursor.execute("SELECT id, source, content, start_line, end_line FROM snippets WHERE type = 'code'")
+    cursor.execute(
+        "SELECT id, source, content, start_line, end_line FROM snippets WHERE type = 'code'"
+    )
     return cursor.fetchall()
 
 
@@ -95,14 +98,19 @@ def get_all_dependencies():
 
 def fetch_dependencies(snippet_id):
     cursor = conn.cursor()
-    cursor.execute("SELECT d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?", (snippet_id,))
+    cursor.execute(
+        "SELECT d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?",
+        (snippet_id,),
+    )
     snippet_ids = cursor.fetchall()
     return [snippet_id[0] for snippet_id in snippet_ids]
 
 
 def fetch_dependents(snippet_id):
     cursor = conn.cursor()
-    cursor.execute("SELECT snippet_id FROM dependencies WHERE dependency_name = ?", (snippet_id,))
+    cursor.execute(
+        "SELECT snippet_id FROM dependencies WHERE dependency_name = ?", (snippet_id,)
+    )
     snippet_ids = cursor.fetchall()
     return [snippet_id[0] for snippet_id in snippet_ids]
 

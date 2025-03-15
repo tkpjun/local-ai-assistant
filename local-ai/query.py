@@ -1,27 +1,25 @@
-import json
-
 import gradio as gr
-import requests
-from lib.processing import get_git_tracked_files, get_project_dependencies
 import sys
 from dotenv import load_dotenv
-import os
 import tiktoken
 from lib.ollama import (
-    run_ollama_model_in_background,
-    get_running_ollama_models,
-    stop_ollama_model_by_name,
     get_ollama_model_names,
 )
 from lib.db import (
     fetch_snippet_ids,
-    fetch_snippets_by_source,
-    fetch_snippet_by_id,
     init_sqlite_tables,
     fetch_dependencies,
-    fetch_dependents
+    fetch_dependents,
 )
 from lib.ingest import ingest_codebase, start_watcher
+from lib.chat import (
+    stream_chat,
+    delete_message,
+    build_prompt,
+    build_prompt_code,
+    retry_last_message,
+)
+from lib.assistants import add_assistant, update_prompt, assistants
 
 load_dotenv(override=False)
 
@@ -29,36 +27,10 @@ tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = sys.argv[1]
 source_directory = sys.argv[2]
 
-system_prompt = """
-You're an AI assistant. Your task is to write code for User. 
-You can also make helpful suggestions to improve the existing codebase.
-
-You write code that is:
-- readable
-- testable
-- modularized based on project structure
-- using mainstream libraries
-
-Communicate in code snippets as User does.
-""".strip("\n")
-
 
 installed_llms = get_ollama_model_names()
-snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
+snippet_ids = []
 last_file_reference_value = []
-assistants = [("Coder", system_prompt)]
-
-def update_prompt(name, new_prompt):
-    global assistants
-    for i, (n, p) in enumerate(assistants):
-        if n == name:
-            assistants[i] = (name, new_prompt)
-            break
-
-def add_assistant(new_name):
-    global assistants
-    if new_name.strip():
-        assistants.append( (new_name, "") )
 
 
 def refresh_snippets():
@@ -66,248 +38,13 @@ def refresh_snippets():
     snippet_ids = fetch_snippet_ids(directory)
 
 
-def refresh_data():
-    global files, project_dependencies, dev_dependencies
-    refresh_snippets()
-    files = get_git_tracked_files(directory)
-    definition_files = [
-        f"{directory}/{file}"
-        for file in files
-        if file.endswith("pyproject.toml") or file.endswith("package.json")
-    ]
-    (project_dependencies, dev_dependencies) = get_project_dependencies(
-        definition_files
-    )
-
-
 init_sqlite_tables()
-refresh_data()
-
-
-def build_prompt(
-    history,
-    user_message,
-    file_reference,
-    context_limit,
-    options,
-    selected_llm,
-):
-    history = history or []  # Ensure history is not None
-    context_prompt = ""
-
-    if "Include project dependencies" in options:
-        context_prompt += "\n# Project dependencies:\n"
-        for dependency in project_dependencies:
-            context_prompt += f"- {dependency}\n"
-
-        context_prompt += "\n# Dev dependencies:\n"
-        for dependency in dev_dependencies:
-            context_prompt += f"- {dependency}\n"
-
-    if "Include file structure" in options:
-        context_prompt += "\n# Project structure:\n"
-        for file in files:
-            context_prompt += f"- {file}\n"
-            snippet_names = fetch_snippets_by_source(f"{directory}/{file}")
-            if ".test." in file or ".test-" in file:
-                continue
-            for name in snippet_names:
-                context_prompt += f"  - {name}\n"
-
-    context_snippets = []
-    file_order = []
-
-    for snippet_id in file_reference:
-        context_snippets.append(fetch_snippet_by_id(snippet_id))
-
-    if context_snippets:
-        for _, source, _, _ in context_snippets:
-            if file_order.count(source) > 0:
-                file_order.remove(source)
-            file_order.append(source)
-
-        seen = set()
-        context_snippets = [
-            dep
-            for dep in context_snippets
-            if (dep[1], dep[2], dep[3]) not in seen
-            and not seen.add((dep[1], dep[2], dep[3]))
-        ]
-        context_snippets = sorted(
-            context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2])
-        )
-
-        context_prompt += (
-            f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
-        )
-        current_source = ""
-        for content, source, _, _ in context_snippets:
-            if source != current_source:
-                if current_source:
-                    context_prompt += "```\n\n"
-                context_prompt += f"## {source}:\n```\n"
-                current_source = source
-            else:
-                context_prompt += "\n"
-            context_prompt += f"{content}\n"
-        context_prompt += "```"
-
-    running_llms = get_running_ollama_models()
-    if not running_llms.get(selected_llm):
-        for llm in running_llms.keys():
-            stop_ollama_model_by_name(llm)
-        run_ollama_model_in_background(selected_llm)
-
-    system_prompt_with_context = system_prompt
-    if context_prompt != "":
-        system_prompt_with_context += f"\n\n{context_prompt}"
-    chat_messages = [{"role": "system", "content": system_prompt_with_context}]
-    for message in history:
-        if message["metadata"]["title"] != "Thinking":
-            chat_messages.append(message)
-    if user_message:
-        chat_messages.append({"role": "user", "content": user_message})
-    return {
-        "model": selected_llm,
-        "messages": chat_messages,
-        "options": {"num_ctx": context_limit},
-    }
-
-
-def build_prompt_code(
-    history,
-    user_message,
-    file_reference,
-    context_limit,
-    options,
-    selected_llm,
-):
-    prompt = build_prompt(
-        history,
-        user_message,
-        file_reference,
-        context_limit,
-        options,
-        selected_llm,
-    )
-    markdown = ""
-    for message in prompt["messages"]:
-        token_amount = len(tokenizer.encode(text=message["content"]))
-        markdown += f"\n# (tokens: {token_amount}) {message["role"]}:\n{message["content"]}\n\n***\n\n"
-    return markdown
-
-
-def stream_chat(
-    history,
-    user_message,
-    file_reference,
-    context_limit,
-    options,
-    selected_llm,
-):
-    history = history or []  # Ensure history is not None
-    prompt = build_prompt(
-        history,
-        user_message,
-        file_reference,
-        context_limit,
-        options,
-        selected_llm,
-    )
-    response = requests.post(
-        os.getenv("LLM_CHAT_ENDPOINT"),
-        json=prompt,
-        stream=True,
-    )
-    response.raise_for_status()
-    # Stream the response line by line
-    bot_message = ""
-    thinking = False
-    first = True
-    for line in response.iter_lines():
-        if line:
-            if first:
-                first = False
-                history.append(
-                    {
-                        "role": "user",
-                        "content": user_message,
-                        "metadata": {"title": None},
-                    }
-                )
-            try:
-                data = json.loads(line.decode("utf-8"))
-                if (data["message"]["content"]) == "<think>":
-                    thinking = True
-                    continue
-                if (data["message"]["content"]) == "</think>":
-                    thinking = False
-                    continue
-
-                if thinking:
-                    if history[-1]["metadata"]["title"] != "Thinking":
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": bot_message,
-                                "metadata": {"title": "Thinking"},
-                            }
-                        )
-                    bot_message += data["message"]["content"]
-                    history[-1]["content"] = bot_message
-                else:
-                    if (
-                        history[-1]["role"] != "assistant"
-                        or history[-1]["metadata"]["title"] == "Thinking"
-                    ):
-                        bot_message = ""
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": bot_message,
-                                "metadata": {"title": None},
-                            }
-                        )
-                    bot_message += data["message"]["content"]
-                    history[-1]["content"] = bot_message
-                yield history
-                if data.get("done"):
-                    break
-            except json.JSONDecodeError:
-                continue
-
-
-def delete_message(chatbot):
-    if chatbot and len(chatbot) > 0:
-        chatbot.pop()  # Remove the last message from the history
-    return chatbot
-
-
-def retry_last_message(
-    chatbot,
-    file_reference,
-    context_limit,
-    options,
-    selected_llm,
-):
-    if chatbot and len(chatbot) > 1:
-        chatbot.pop()
-        user_message = chatbot.pop()['content']
-        generator = stream_chat(
-            chatbot,
-            user_message,
-            file_reference,
-            context_limit,
-            options,
-            selected_llm,
-        )
-        for chat_history in generator:
-            yield chat_history
-    else:
-        yield chatbot
+refresh_snippets()
 
 # New assistant input
-new_name = gr.Textbox(show_label=False, placeholder="New assistant name", submit_btn="Add new assistant")
+new_name = gr.Textbox(
+    show_label=False, placeholder="New assistant name", submit_btn="Add new assistant"
+)
 
 # Create a Gradio chat interface with streaming
 with gr.Blocks(fill_height=True) as chat_interface:
@@ -320,9 +57,10 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 user_input = gr.Textbox(
                     show_label=False,
                     placeholder="Type your question here...",
-                    submit_btn="Send"
+                    submit_btn="Send",
                 )
             with gr.Tab("Assistants"):
+
                 @gr.render(triggers=[new_name.submit, chat_interface.load])
                 def generate_assistants():
                     for name, prompt in assistants:
@@ -333,23 +71,19 @@ with gr.Blocks(fill_height=True) as chat_interface:
                                 lines=15,
                                 max_lines=30,
                                 elem_id=f"prompt_{name}",
-                                submit_btn="Save"
+                                submit_btn="Save",
                             )
 
                             # Save button callback
                             prompt_input.submit(
                                 lambda pn=prompt_input, n=name: update_prompt(n, pn),
                                 inputs=[prompt_input],
-                                outputs=None
+                                outputs=None,
                             )
 
                 new_name.render()
                 # Add button handler
-                new_name.submit(
-                    add_assistant,
-                    inputs=[new_name],
-                    outputs=None
-                )
+                new_name.submit(add_assistant, inputs=[new_name], outputs=None)
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
                 build_prompt_button = gr.Button("Generate")
@@ -359,7 +93,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
         with gr.Column(scale=1, min_width=400):
             with gr.Accordion("General", open=True):
                 selected_llm = gr.Dropdown(
-                    label="Selected LLM", choices=installed_llms, value=installed_llms[0]
+                    label="Selected LLM",
+                    choices=installed_llms,
+                    value=installed_llms[0],
                 )
                 assistant = gr.Dropdown(
                     label="Selected assistant", choices=["Coder"], value="Coder"
@@ -377,7 +113,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     choices=snippet_ids,
                     value=None,
                     allow_custom_value=True,
-                    multiselect=True
+                    multiselect=True,
                 )
                 file_options = gr.Radio(
                     choices=["Snippet", "Dependencies", "Dependents"],
@@ -397,7 +133,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
     def on_snippet_input(file_reference, file_options):
         global last_file_reference_value
-        added = [item for item in file_reference if item not in last_file_reference_value]
+        added = [
+            item for item in file_reference if item not in last_file_reference_value
+        ]
         if len(added) and file_options == "Dependencies":
             dependencies = fetch_dependencies(added[0])
             file_reference.pop()
@@ -412,7 +150,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
     file_reference.input(
         fn=on_snippet_input,
         inputs=[file_reference, file_options],
-        outputs=[file_reference]
+        outputs=[file_reference],
     )
 
     # Handle user input and display the streaming response
@@ -474,8 +212,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
     def click_ingest():
         ingest_codebase(directory, source_directory)
-        refresh_data()
-        return gr.update(choices=snippet_ids)
+        return update_snippets()
 
     ingest_button.click(click_ingest, outputs=[file_reference])
 
