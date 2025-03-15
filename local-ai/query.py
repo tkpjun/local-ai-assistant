@@ -10,6 +10,9 @@ from lib.db import (
     init_sqlite_tables,
     fetch_dependencies,
     fetch_dependents,
+    clear_chat_history,
+    load_chat_history,
+    save_chat_history,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -27,7 +30,6 @@ tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = sys.argv[1]
 source_directory = sys.argv[2]
 
-
 installed_llms = get_ollama_model_names()
 snippet_ids = []
 last_file_reference_value = []
@@ -39,6 +41,7 @@ def refresh_snippets():
 
 
 init_sqlite_tables()
+initial_history = load_chat_history()
 refresh_snippets()
 
 # New assistant input
@@ -52,13 +55,18 @@ with gr.Blocks(fill_height=True) as chat_interface:
         with gr.Column(scale=2):
             with gr.Tab(label="Chat"):
                 chatbot = gr.Chatbot(
-                    elem_id="chatbot", min_height=800, editable="all", type="messages"
+                    elem_id="chatbot",
+                    min_height=800,
+                    editable="all",
+                    type="messages",
+                    value=initial_history,
                 )
                 user_input = gr.Textbox(
                     show_label=False,
                     placeholder="Type your question here...",
                     submit_btn="Send",
                 )
+                chatbot.change(fn=save_chat_history, inputs=chatbot, outputs=None)
             with gr.Tab("Assistants"):
 
                 @gr.render(triggers=[new_name.submit, chat_interface.load])
@@ -137,6 +145,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
             item for item in file_reference if item not in last_file_reference_value
         ]
         if len(added) and file_options == "Dependencies":
+            # TODO should get internal dependencies (same file) recursively
             dependencies = fetch_dependencies(added[0])
             file_reference.pop()
             file_reference += [item for item in dependencies]
@@ -215,6 +224,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
         return update_snippets()
 
     ingest_button.click(click_ingest, outputs=[file_reference])
+
+    clear_button.click(clear_chat_history)
 
 start_watcher(directory, source_directory)
 # Launch the Gradio app

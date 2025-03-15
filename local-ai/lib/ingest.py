@@ -45,6 +45,7 @@ def delete_file_snippets(directory, file):
 # Function to process imports and store dependencies
 def process_imports(filepath, modulepath, full_content, snippets):
     # Detect imports at the beginning of the file (Python and JS/TS)
+    # TODO fix Python multiline imports
     regex_py = r"^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)"
     regex_js_ts = r'^(?:import\s+(?:\*\s+as\s+\S+|{[^}]+}|[\w$]+)\s+from\s+[\'"][^\'"]+[\'"]|import\s+[\'"][^\'"]+[\'"]|export\s+{[^}]+}\s+from\s+[\'"][^\'"]+[\'"])'
     regex = regex_py if filepath.endswith(".py") else regex_js_ts

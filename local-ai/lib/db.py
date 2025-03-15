@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from typing import Optional
 
 sqlite3.threadsafety = 3
@@ -31,6 +32,15 @@ def init_sqlite_tables():
         FOREIGN KEY (snippet_id) REFERENCES snippets (id)
     )
     """
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS messages (
+        ordinal INTEGER PRIMARY KEY,
+        role TEXT,
+        content TEXT,
+        metadata TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )"""
     )
     conn.commit()
 
@@ -142,3 +152,27 @@ def fetch_snippet_by_id(id):
     )
     snippet = cursor.fetchone()
     return snippet
+
+
+def load_chat_history():
+    cursor = conn.cursor()
+    cursor.execute("SELECT role, content, metadata FROM messages ORDER BY ordinal")
+    return [
+        {"role": r[0], "content": r[1], "metadata": json.loads(r[2])}
+        for r in cursor.fetchall()
+    ]
+
+
+def save_chat_history(chat_history):
+    cursor = conn.cursor()
+    for index, msg in enumerate(chat_history):
+        cursor.execute(
+            "INSERT OR REPLACE INTO messages (ordinal, role, content, metadata) VALUES (?, ?, ?, ?)",
+            (index + 1, msg["role"], msg["content"], json.dumps(msg["metadata"])),
+        )
+    conn.commit()
+
+
+def clear_chat_history():
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages")
