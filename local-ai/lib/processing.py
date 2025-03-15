@@ -21,7 +21,6 @@ def get_project_dependencies(filepaths):
         if filepath.endswith(".toml"):
             with open(filepath, "rb") as file:
                 data = tomli.load(file)
-            print(data)
             deps_from_file = data["project"]["dependencies"]
             for line in deps_from_file:
                 dependencies.add(line)
