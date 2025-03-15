@@ -48,6 +48,18 @@ snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
 last_file_reference_value = []
 assistants = [("Coder", system_prompt)]
 
+def update_prompt(name, new_prompt):
+    global assistants
+    for i, (n, p) in enumerate(assistants):
+        if n == name:
+            assistants[i] = (name, new_prompt)
+            break
+
+def add_assistant(new_name):
+    global assistants
+    if new_name.strip():
+        assistants.append( (new_name, "") )
+
 
 def refresh_snippets():
     global snippet_ids
@@ -294,6 +306,8 @@ def retry_last_message(
     else:
         yield chatbot
 
+# New assistant input
+new_name = gr.Textbox(show_label=False, placeholder="New assistant name", submit_btn="Add new assistant")
 
 # Create a Gradio chat interface with streaming
 with gr.Blocks(fill_height=True) as chat_interface:
@@ -308,18 +322,34 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     placeholder="Type your question here...",
                     submit_btn="Send"
                 )
-            with gr.Tab(label="Assistants"):
-                for (name, prompt) in assistants:
-                    with gr.Accordion(name, open=True):
-                        prompt_input = gr.Textbox(
-                            label=f"Context length: {len(tokenizer.encode(text=prompt))} tokens",
-                            value=prompt,
-                            lines=15,
-                            max_lines=30,
-                            submit_btn="Save",
-                            stop_btn="Delete"
-                        )
-                new_name = gr.Textbox(show_label=False, placeholder="Enter assistant name", submit_btn="Add new assistant")
+            with gr.Tab("Assistants"):
+                @gr.render(triggers=[new_name.submit, chat_interface.load])
+                def generate_assistants():
+                    for name, prompt in assistants:
+                        with gr.Accordion(name, open=True):
+                            prompt_input = gr.Textbox(
+                                label=f"Context length: {len(tokenizer.encode(prompt))} tokens",
+                                value=prompt,
+                                lines=15,
+                                max_lines=30,
+                                elem_id=f"prompt_{name}",
+                                submit_btn="Save"
+                            )
+
+                            # Save button callback
+                            prompt_input.submit(
+                                lambda pn=prompt_input, n=name: update_prompt(n, pn),
+                                inputs=[prompt_input],
+                                outputs=None
+                            )
+
+                new_name.render()
+                # Add button handler
+                new_name.submit(
+                    add_assistant,
+                    inputs=[new_name],
+                    outputs=None
+                )
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
                 build_prompt_button = gr.Button("Generate")
