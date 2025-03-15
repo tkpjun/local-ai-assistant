@@ -40,12 +40,13 @@ You write code that is:
 - using mainstream libraries
 
 Communicate in code snippets as User does.
-"""
+""".strip("\n")
 
 
 installed_llms = get_ollama_model_names()
 snippet_ids, files, project_dependencies, dev_dependencies = ([], [], [], [])
 last_file_reference_value = []
+assistants = [("Coder", system_prompt)]
 
 
 def refresh_snippets():
@@ -297,14 +298,28 @@ def retry_last_message(
 # Create a Gradio chat interface with streaming
 with gr.Blocks(fill_height=True) as chat_interface:
     with gr.Row():
-        with gr.Column(scale=3):
+        with gr.Column(scale=2):
             with gr.Tab(label="Chat"):
                 chatbot = gr.Chatbot(
                     elem_id="chatbot", min_height=800, editable="all", type="messages"
                 )
                 user_input = gr.Textbox(
-                    placeholder="Type your question here...", label="Your Message"
+                    show_label=False,
+                    placeholder="Type your question here...",
+                    submit_btn="Send"
                 )
+            with gr.Tab(label="Assistants"):
+                for (name, prompt) in assistants:
+                    with gr.Accordion(name, open=True):
+                        prompt_input = gr.Textbox(
+                            label=f"Context length: {len(tokenizer.encode(text=prompt))} tokens",
+                            value=prompt,
+                            lines=15,
+                            max_lines=30,
+                            submit_btn="Save",
+                            stop_btn="Delete"
+                        )
+                new_name = gr.Textbox(show_label=False, placeholder="Enter assistant name", submit_btn="Add new assistant")
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
                 build_prompt_button = gr.Button("Generate")
@@ -312,30 +327,33 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 prompt_md_box = gr.Markdown()
                 build_prompt_md_button = gr.Button("Generate")
         with gr.Column(scale=1, min_width=400):
-            selected_llm = gr.Dropdown(
-                label="Selected LLM", choices=installed_llms, value=installed_llms[0]
-            )
-            context_limit = gr.Number(
-                label="Context limit in tokens", value=8192, precision=0
-            )
-            options = gr.CheckboxGroup(
-                choices=["Project dependencies", "File structure"],
-                label="Options",
-            )
-            with gr.Row():
-                with gr.Column():
-                    file_reference = gr.Dropdown(
-                        label="Select snippet by module",
-                        choices=snippet_ids,
-                        value=None,
-                        allow_custom_value=True,
-                        multiselect=True
-                    )
-                    file_options = gr.Radio(
-                        choices=["Snippet", "Dependencies", "Dependents"],
-                        value="Snippet",
-                        label="Include",
-                    )
+            with gr.Accordion("General", open=True):
+                selected_llm = gr.Dropdown(
+                    label="Selected LLM", choices=installed_llms, value=installed_llms[0]
+                )
+                assistant = gr.Dropdown(
+                    label="Selected assistant", choices=["Coder"], value="Coder"
+                )
+                context_limit = gr.Number(
+                    label="Context limit in tokens", value=8192, precision=0
+                )
+                options = gr.CheckboxGroup(
+                    choices=["Project dependencies", "File structure"],
+                    label="Embed extra context",
+                )
+            with gr.Accordion("Snippets"):
+                file_reference = gr.Dropdown(
+                    label="Select snippet by module",
+                    choices=snippet_ids,
+                    value=None,
+                    allow_custom_value=True,
+                    multiselect=True
+                )
+                file_options = gr.Radio(
+                    choices=["Snippet", "Dependencies", "Dependents"],
+                    value="Snippet",
+                    label="Include",
+                )
             with gr.Row():
                 retry_button = gr.Button("Retry response", size="md")
                 delete_button = gr.Button("Delete message", size="md")
