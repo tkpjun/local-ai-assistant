@@ -100,6 +100,7 @@ def build_prompt(
     system_prompt_with_context = get_assistant_prompt()
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
+    system_tokens = len(tokenizer.encode(text=system_prompt_with_context))
     chat_messages = [{"role": "system", "content": system_prompt_with_context}]
     for message in history:
         if message["metadata"]["title"] != "Thinking":
@@ -109,7 +110,10 @@ def build_prompt(
     return {
         "model": assistant.llm,
         "messages": chat_messages,
-        "options": {"num_ctx": assistant.context_limit},
+        "options": {
+            "num_ctx": system_tokens + assistant.context_limit,
+            "num_predict": assistant.response_size_limit,
+        },
     }
 
 
@@ -128,9 +132,11 @@ def build_prompt_code(
         selected_assistant,
         options,
     )
+    system_prompt_len = len(tokenizer.encode(prompt["messages"][0]["content"]))
     markdown = f"# Assistant: {assistant.name}\n"
     markdown += f"## Model: {assistant.llm}\n"
-    markdown += f"## Context limit: {assistant.context_limit}\n"
+    markdown += f"## Context limit: {assistant.context_limit} + {system_prompt_len}\n"
+    markdown += f"## Response size limit: {assistant.response_size_limit}\n\n"
     markdown += "\n***\n\n"
     for message in prompt["messages"]:
         token_amount = len(tokenizer.encode(text=message["content"]))

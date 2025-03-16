@@ -14,7 +14,6 @@ from lib.db import (
     clear_chat_history,
     load_chat_history,
     save_chat_history,
-    upsert_assistant,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -28,7 +27,9 @@ from lib.assistants import (
     update_prompt,
     get_all_assistants,
     update_llm,
-    update_context_limit, add_assistant,
+    update_context_limit,
+    update_response_limit,
+    add_assistant,
 )
 
 load_dotenv(override=False)
@@ -80,18 +81,25 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 def generate_assistants():
                     for assistant in get_all_assistants():
                         with gr.Accordion(assistant.name, open=not assistant.llm):
-                            llm_selector = gr.Dropdown(
-                                label=f"Assistant model",
-                                choices=installed_llms,
-                                value=assistant.llm,
-                                elem_id=f"llm_{assistant.name}",
-                            )
-                            context_limit_input = gr.Number(
-                                label=f"Context limit in tokens for {assistant.name}",
-                                value=assistant.context_limit,
-                                precision=0,
-                                elem_id=f"context_limit_{assistant.name}",
-                            )
+                            with gr.Row():
+                                llm_selector = gr.Dropdown(
+                                    label=f"Assistant model",
+                                    choices=installed_llms,
+                                    value=assistant.llm,
+                                    elem_id=f"llm_{assistant.name}",
+                                )
+                                context_limit_input = gr.Number(
+                                    label=f"Chat history limit in tokens",
+                                    value=assistant.context_limit,
+                                    precision=0,
+                                    elem_id=f"context_limit_{assistant.name}",
+                                )
+                                response_limit_input = gr.Number(
+                                    label=f"Response limit in tokens",
+                                    value=assistant.response_size_limit,
+                                    precision=0,
+                                    elem_id=f"response_limit_{assistant.name}",
+                                )
                             prompt_input = gr.Textbox(
                                 label=f"Context length: {len(tokenizer.encode(assistant.prompt))} tokens",
                                 value=assistant.prompt,
@@ -120,6 +128,13 @@ with gr.Blocks(fill_height=True) as chat_interface:
                                     n, int(cl)
                                 ),
                                 inputs=[context_limit_input],
+                                outputs=None,
+                            )
+                            prompt_input.submit(
+                                lambda cl=response_limit_input, n=assistant.name: update_response_limit(
+                                    n, int(cl)
+                                ),
+                                inputs=[response_limit_input],
                                 outputs=None,
                             )
 

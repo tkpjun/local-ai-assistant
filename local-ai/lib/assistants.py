@@ -15,7 +15,7 @@ You write code that is:
 
 Communicate in code snippets as User does.
 """.strip()
-    return Assistant("Coder", None, 8192, default_prompt)
+    return Assistant("Coder", None, 6000, 4096, default_prompt)
 
 
 def get_all_assistants():
@@ -48,12 +48,20 @@ def update_context_limit(name, new_context_limit):
         upsert_assistant(assistant)
 
 
+def update_response_limit(name, new_limit):
+    assistant = fetch_assistant_by_name(name)
+    if assistant:
+        assistant.response_size_limit = new_limit
+        upsert_assistant(assistant)
+
+
 def get_assistant_prompt():
     assistant = fetch_assistant_by_name("Coder")
     if assistant:
         return assistant.prompt
     return None
 
+
 def add_assistant(new_name: str):
     if not fetch_assistant_by_name(new_name):
-        upsert_assistant(Assistant(new_name, None, 8192, ""))
+        upsert_assistant(Assistant(new_name, None, 6000, 4096, ""))

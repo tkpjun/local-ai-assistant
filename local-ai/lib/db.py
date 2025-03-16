@@ -50,7 +50,8 @@ def init_sqlite_tables():
         name TEXT PRIMARY KEY,
         llm TEXT,
         prompt TEXT,
-        context_limit INTEGER
+        context_limit INTEGER,
+        response_size_limit INTEGER
     )
     """
     )
@@ -194,8 +195,8 @@ def upsert_assistant(assistant: Assistant):
     cursor = conn.cursor()
     cursor.execute(
         """
-                    INSERT OR REPLACE INTO assistants (name, llm, context_limit, prompt)
-                    VALUES (?, ?, ?, ?)
+                    INSERT OR REPLACE INTO assistants (name, llm, context_limit, response_size_limit, prompt)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
         astuple(assistant),
     )
@@ -210,14 +211,16 @@ def delete_assistant(name: str):
 
 def fetch_all_assistants() -> List[Assistant]:
     cursor = conn.cursor()
-    cursor.execute("SELECT name, llm, context_limit, prompt FROM assistants")
+    cursor.execute(
+        "SELECT name, llm, context_limit, response_size_limit, prompt FROM assistants"
+    )
     return [Assistant(*row) for row in cursor.fetchall()]
 
 
 def fetch_assistant_by_name(name: str) -> Optional[Assistant]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT name, llm, context_limit, prompt FROM assistants WHERE name = ?",
+        "SELECT name, llm, context_limit, response_size_limit, prompt FROM assistants WHERE name = ?",
         (name,),
     )
     row = cursor.fetchone()
