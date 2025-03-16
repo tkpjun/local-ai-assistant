@@ -3,17 +3,17 @@ import sys
 import os
 from dotenv import load_dotenv
 import tiktoken
+from typing import List
 from lib.ollama import (
     get_ollama_model_names,
 )
 from lib.db import (
-    fetch_snippet_ids,
+    fetch_snippets_by_directory,
     init_sqlite_tables,
     fetch_dependencies,
     fetch_dependents,
     clear_chat_history,
     load_chat_history,
-    save_chat_history,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -39,13 +39,13 @@ directory = os.path.abspath(sys.argv[1])
 source_directory = sys.argv[2]
 
 installed_llms = get_ollama_model_names()
-snippet_ids = []
+snippet_ids: List[str] = []
 last_file_reference_value = []
 
 
 def refresh_snippets():
     global snippet_ids
-    snippet_ids = fetch_snippet_ids(directory)
+    snippet_ids = [snippet.id for snippet in fetch_snippets_by_directory(directory)]
 
 
 init_sqlite_tables()
@@ -68,13 +68,13 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     editable="all",
                     type="messages",
                     value=initial_history,
+                    autoscroll=True,
                 )
                 user_input = gr.Textbox(
                     show_label=False,
                     placeholder="Type your question here...",
                     submit_btn="Send",
                 )
-                chatbot.change(fn=save_chat_history, inputs=chatbot, outputs=None)
             with gr.Tab("Assistants"):
 
                 @gr.render(triggers=[new_name.submit, chat_interface.load])
@@ -191,11 +191,13 @@ with gr.Blocks(fill_height=True) as chat_interface:
             # TODO should get internal dependencies (same file) recursively
             dependencies = fetch_dependencies(added[0])
             file_reference.pop()
-            file_reference += [item for item in dependencies]
+            file_reference += [
+                dependency.dependency_name for dependency in dependencies
+            ]
             file_reference += added
         if len(added) and file_options == "Dependents":
             dependents = fetch_dependents(added[0])
-            file_reference += [item for item in dependents]
+            file_reference += [dependency.snippet_id for dependency in dependents]
         last_file_reference_value = file_reference
         return gr.update(value=file_reference)
 

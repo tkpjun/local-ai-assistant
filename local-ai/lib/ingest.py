@@ -1,11 +1,10 @@
-import sys
 import os
 import re
 
 from lib.chunking import chunk_python_code, chunk_js_ts_code
 from lib.context import get_git_tracked_files
 from lib.log import log
-from lib.db import init_sqlite_tables, upsert_snippet, upsert_dependency, cleanup_data
+from lib.db import upsert_snippet, upsert_dependency, cleanup_data
 from lib.qdrant import insert_snippets
 from watchdog.events import (
     FileSystemEventHandler,
@@ -15,6 +14,9 @@ from watchdog.events import (
     FileMovedEvent,
 )
 from watchdog.observers import Observer
+
+from lib.types import Dependency, Snippet, Chunk
+from typing import List
 
 config = {
     "file_processors": {
@@ -43,7 +45,9 @@ def delete_file_snippets(directory, file):
 
 
 # Function to process imports and store dependencies
-def process_imports(filepath, modulepath, full_content, snippets):
+def process_imports(snippets: List[Snippet]):
+    filepath = snippets[0].source
+    full_content = snippets[0].content
     # Detect imports at the beginning of the file (Python and JS/TS)
     # TODO fix Python multiline imports
     regex_py = r"^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)"
@@ -51,10 +55,10 @@ def process_imports(filepath, modulepath, full_content, snippets):
     regex = regex_py if filepath.endswith(".py") else regex_js_ts
     import_lines = re.findall(regex, full_content, re.MULTILINE)
     dependencies_from_same_file = [
-        snippet[0] for snippet in snippets if snippet[0] is not None
+        snippet.module for snippet in snippets if snippet.module is not None
     ]
 
-    for identifier, snippet_content, _, _ in snippets:
+    for snippet in snippets:
         # Extract only the import paths and their contents
         all_imports = {}
         for line in import_lines:
@@ -99,7 +103,7 @@ def process_imports(filepath, modulepath, full_content, snippets):
         for module_path, objects in all_imports.items():
             if filepath.endswith((".js", ".ts", ".tsx")):
                 for obj in objects:
-                    if re.search(rf"\b{re.escape(obj)}\b", snippet_content):
+                    if re.search(rf"\b{re.escape(obj)}\b", snippet.content):
                         amount = module_path.count("../")
                         if module_path.startswith("./"):
                             amount += 1
@@ -108,7 +112,7 @@ def process_imports(filepath, modulepath, full_content, snippets):
 
                         modified_module_path = module_path
                         if "./" in module_path:
-                            modified_module_path = modulepath.replace(".", "/")
+                            modified_module_path = snippet.module.replace(".", "/")
                             for _ in range(amount):
                                 modified_module_path = os.path.dirname(
                                     modified_module_path
@@ -124,7 +128,7 @@ def process_imports(filepath, modulepath, full_content, snippets):
                         relevant_imports.append(f"{modified_module_path}.{obj}")
             elif filepath.endswith(".py"):
                 for obj in objects:
-                    if re.search(rf"\b{re.escape(obj)}\b", snippet_content):
+                    if re.search(rf"\b{re.escape(obj)}\b", snippet.content):
                         relevant_imports.append(
                             f"{module_path}.{obj}"
                             if module_path != obj
@@ -133,20 +137,20 @@ def process_imports(filepath, modulepath, full_content, snippets):
 
         for dependency in dependencies_from_same_file:
             if (
-                identifier is not None
-                and identifier != dependency
-                and dependency in snippet_content
+                snippet.name is not None
+                and snippet.name != dependency
+                and dependency in snippet.content
             ):
-                relevant_imports.append(f"{modulepath}.{dependency}")
-        if identifier is not None and identifier != "_imports_":
-            relevant_imports.append(f"{modulepath}._imports_")
+                relevant_imports.append(f"{snippet.module}.{dependency}")
+        if snippet.name is not None and snippet.name != "_imports_":
+            relevant_imports.append(f"{snippet.module}._imports_")
 
         log.debug(all_imports)
         log.debug(relevant_imports)
 
         # Insert dependencies into the database
-        for imp in relevant_imports:
-            upsert_dependency(modulepath, identifier, imp)
+        for dependency_name in relevant_imports:
+            upsert_dependency(Dependency(snippet.id, dependency_name))
 
 
 def process_file(directory, source_directory, file):
@@ -171,18 +175,36 @@ def process_file(directory, source_directory, file):
     chunks = processor(text)
 
     log.info(f"Processing snippet: {modulepath}")
-    upsert_snippet(modulepath, None, filepath, text, 1, text.count("\n") + 1, "file")
-
-    snippets = []
-    for identifier, content, first_line, last_line in chunks:
-        log.info(f"Processing snippet: {modulepath + '.' + identifier}")
-        upsert_snippet(
-            modulepath, identifier, filepath, content, first_line, last_line, "code"
+    snippet_id = modulepath
+    snippets: List[Snippet] = [
+        Snippet(
+            snippet_id,
+            filepath,
+            modulepath,
+            None,
+            text,
+            1,
+            text.count("\n") + 1,
+            "file",
         )
-        snippets.append((filepath, identifier, content))
-
-    chunks.append((None, text, 1, text.count("\n") + 1))
-    process_imports(filepath, modulepath, text, chunks)
+    ]
+    upsert_snippet(snippets[0])
+    for chunk in chunks:
+        snippet_id = f"{modulepath}.{chunk.name}"
+        log.info(f"Processing snippet: {snippet_id}")
+        snippet = Snippet(
+            snippet_id,
+            filepath,
+            modulepath,
+            chunk.name,
+            chunk.content,
+            chunk.start_line,
+            chunk.end_line,
+            "code",
+        )
+        upsert_snippet(snippet)
+        snippets.append(snippet)
+    process_imports(snippets)
 
     insert_snippets(snippets)
 

@@ -7,15 +7,17 @@ from lib.db import (
     fetch_snippets_by_source,
     fetch_snippet_by_id,
     fetch_assistant_by_name,
+    upsert_message,
 )
 from lib.ollama import (
     run_ollama_model_in_background,
     get_running_ollama_models,
     stop_ollama_model_by_name,
-    get_ollama_model_names,
 )
 from lib.context import get_git_tracked_files, get_project_dependencies
 from lib.assistants import get_assistant_prompt
+from gradio import ChatMessage
+from dataclasses import asdict
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = os.path.abspath(sys.argv[1])
@@ -29,7 +31,9 @@ def build_prompt(
     options,
 ):
     assistant = fetch_assistant_by_name(selected_assistant)
-    history = history or []  # Ensure history is not None
+    history = [
+        ChatMessage(**message) for message in history or []
+    ]  # Ensure history is not None
     context_prompt = ""
 
     if "Include project dependencies" in options:
@@ -101,12 +105,12 @@ def build_prompt(
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
     system_tokens = len(tokenizer.encode(text=system_prompt_with_context))
-    chat_messages = [{"role": "system", "content": system_prompt_with_context}]
+    chat_messages = [ChatMessage("system", system_prompt_with_context, metadata=dict())]
     for message in history:
-        if message["metadata"]["title"] != "Thinking":
+        if message.metadata["title"] != "Thinking":
             chat_messages.append(message)
     if user_message:
-        chat_messages.append({"role": "user", "content": user_message})
+        chat_messages.append(ChatMessage("user", user_message, metadata=dict()))
     return {
         "model": assistant.llm,
         "messages": chat_messages,
@@ -132,15 +136,15 @@ def build_prompt_code(
         selected_assistant,
         options,
     )
-    system_prompt_len = len(tokenizer.encode(prompt["messages"][0]["content"]))
+    system_prompt_len = len(tokenizer.encode(prompt["messages"][0].content))
     markdown = f"# Assistant: {assistant.name}\n"
     markdown += f"## Model: {assistant.llm}\n"
     markdown += f"## Context limit: {assistant.context_limit} + {system_prompt_len}\n"
     markdown += f"## Response size limit: {assistant.response_size_limit}\n\n"
     markdown += "\n***\n\n"
     for message in prompt["messages"]:
-        token_amount = len(tokenizer.encode(text=message["content"]))
-        markdown += f"\n# (tokens: {token_amount}) {message["role"]}:\n{message["content"]}\n\n***\n\n"
+        token_amount = len(tokenizer.encode(text=message.content))
+        markdown += f"\n# (tokens: {token_amount}) {message.role}:\n{message.content}\n\n***\n\n"
     return markdown
 
 
@@ -161,7 +165,10 @@ def stream_chat(
     )
     response = requests.post(
         os.getenv("LLM_CHAT_ENDPOINT"),
-        json=prompt,
+        json={
+            **prompt,
+            "messages": [asdict(message) for message in prompt["messages"]],
+        },
         stream=True,
     )
     response.raise_for_status()
@@ -173,13 +180,9 @@ def stream_chat(
         if line:
             if first:
                 first = False
-                history.append(
-                    {
-                        "role": "user",
-                        "content": user_message,
-                        "metadata": {"title": None},
-                    }
-                )
+                new_message = ChatMessage("user", user_message, dict())
+                history.append(new_message)
+                upsert_message(new_message, len(history))
             try:
                 data = json.loads(line.decode("utf-8"))
                 if (data["message"]["content"]) == "<think>":
@@ -190,31 +193,28 @@ def stream_chat(
                     continue
 
                 if thinking:
-                    if history[-1]["metadata"]["title"] != "Thinking":
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": bot_message,
-                                "metadata": {"title": "Thinking"},
-                            }
+                    if dict.get(history[-1].metadata, "title") != "Thinking":
+                        new_message = ChatMessage(
+                            "assistant",
+                            bot_message,
+                            {"title": "Thinking"},
                         )
+                        history.append(new_message)
+                        upsert_message(new_message, len(history))
                     bot_message += data["message"]["content"]
-                    history[-1]["content"] = bot_message
+                    history[-1].content = bot_message
                 else:
                     if (
-                        history[-1]["role"] != "assistant"
-                        or history[-1]["metadata"]["title"] == "Thinking"
+                        history[-1].role != "assistant"
+                        or dict.get(history[-1].metadata, "title") == "Thinking"
                     ):
                         bot_message = ""
-                        history.append(
-                            {
-                                "role": "assistant",
-                                "content": bot_message,
-                                "metadata": {"title": None},
-                            }
-                        )
+                        new_message = ChatMessage("assistant", bot_message, dict())
+                        history.append(new_message)
+                        upsert_message(new_message, len(history))
                     bot_message += data["message"]["content"]
-                    history[-1]["content"] = bot_message
+                    history[-1].content = bot_message
+                    upsert_message(history[-1], len(history))
                 yield history
                 if data.get("done"):
                     break
@@ -231,9 +231,8 @@ def delete_message(chatbot):
 def retry_last_message(
     chatbot,
     file_reference,
-    context_limit,
+    selected_assistant,
     options,
-    selected_llm,
 ):
     if chatbot and len(chatbot) > 1:
         chatbot.pop()
@@ -242,9 +241,8 @@ def retry_last_message(
             chatbot,
             user_message,
             file_reference,
-            context_limit,
+            selected_assistant,
             options,
-            selected_llm,
         )
         for chat_history in generator:
             yield chat_history

@@ -1,13 +1,15 @@
-import json
 import re
 
+from typing import List
+from lib.types import Chunk
 
-def chunk_python_code(text):
+
+def chunk_python_code(text: str) -> List[Chunk]:
     lines = text.splitlines()
     chunk_first_line = 1
-    chunks = []
-    current_chunk = []
-    preceding_comments = []
+    chunks: List[Chunk] = []
+    current_chunk: List[str] = []
+    preceding_comments: List[str] = []
 
     # Regular expression to match top-level variable assignments
     var_assignment_pattern = re.compile(r"^\s*(\w+)\s*=")
@@ -40,7 +42,7 @@ def chunk_python_code(text):
                     match = re.match(r"(class|def)\s+(\w+)", chunk_text)
                     identifier = match.group(2) if match else None
                     chunks.append(
-                        (identifier, full_chunk, chunk_first_line, line_number - 1)
+                        Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
                     )
                     preceding_comments.clear()  # Clear comments after processing
                 elif var_assignment_pattern.match(
@@ -50,7 +52,7 @@ def chunk_python_code(text):
                     match = var_assignment_pattern.match(chunk_text)
                     identifier = match.group(1) if match else None
                     chunks.append(
-                        (identifier, full_chunk, chunk_first_line, line_number - 1)
+                        Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
                     )
                     preceding_comments.clear()  # Clear comments after processing
 
@@ -70,26 +72,30 @@ def chunk_python_code(text):
         if chunk_text.startswith(("class ", "def ")):
             match = re.match(r"(class|def)\s+(\w+)", chunk_text)
             identifier = match.group(2) if match else None
-            chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
+            chunks.append(
+                Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
+            )
         elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
             match = var_assignment_pattern.match(chunk_text)
             identifier = match.group(1) if match else None
-            chunks.append((identifier, full_chunk, chunk_first_line, line_number - 1))
+            chunks.append(
+                Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
+            )
 
     # Add imports as the first chunk with identifier _imports_
     if import_lines:
         import_chunk_text = "\n".join(import_lines).strip()
-        chunks.insert(0, ("_imports_", import_chunk_text, 1, len(import_lines)))
+        chunks.insert(0, Chunk("_imports_", import_chunk_text, 1, len(import_lines)))
 
     return chunks
 
 
 # Chunker for React and JS/TS files
-def chunk_js_ts_code(text):
+def chunk_js_ts_code(text: str) -> List[Chunk]:
     lines = text.splitlines()
-    chunks = []
-    current_chunk = []
-    preceding_comments = []
+    chunks: List[Chunk] = []
+    current_chunk: List[str] = []
+    preceding_comments: List[str] = []
 
     # Regular expression to match top-level function, class, var, let, const declarations
     func_class_var_interface_type_pattern = re.compile(
@@ -161,7 +167,7 @@ def chunk_js_ts_code(text):
 
                     if identifier is not None:
                         chunks.append(
-                            (
+                            Chunk(
                                 identifier,
                                 full_chunk,
                                 current_chunk_start_line,
@@ -181,7 +187,12 @@ def chunk_js_ts_code(text):
     if found_module_exports:
         exports_chunk_text = "\n".join(current_chunk).strip()
         chunks.append(
-            ("_exports_", exports_chunk_text, current_chunk_start_line, line_number - 1)
+            Chunk(
+                "_exports_",
+                exports_chunk_text,
+                current_chunk_start_line,
+                line_number - 1,
+            )
         )
     elif current_chunk:
         full_chunk = "\n".join(current_chunk).strip()
@@ -194,12 +205,12 @@ def chunk_js_ts_code(text):
         identifier = match.group(2) if match else None
         if identifier is not None:
             chunks.append(
-                (identifier, full_chunk, current_chunk_start_line, line_number - 1)
+                Chunk(identifier, full_chunk, current_chunk_start_line, line_number - 1)
             )
 
     # Handle import lines
     if import_lines:
         import_chunk_text = "\n".join([line for _, line in import_lines]).strip()
-        chunks.insert(0, ("_imports_", import_chunk_text, 1, len(import_lines)))
+        chunks.insert(0, Chunk("_imports_", import_chunk_text, 1, len(import_lines)))
 
     return chunks

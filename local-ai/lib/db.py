@@ -1,7 +1,8 @@
 import sqlite3
 import json
 from typing import Optional, List
-from lib.types import Assistant
+from lib.types import Assistant, Snippet, Dependency
+from gradio import ChatMessage
 from dataclasses import astuple
 
 sqlite3.threadsafety = 3
@@ -28,9 +29,9 @@ def init_sqlite_tables():
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS dependencies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         snippet_id TEXT,
         dependency_name TEXT,
+        PRIMARY KEY (snippet_id, dependency_name)
         FOREIGN KEY (snippet_id) REFERENCES snippets (id)
     )
     """
@@ -40,8 +41,7 @@ def init_sqlite_tables():
         ordinal INTEGER PRIMARY KEY,
         role TEXT,
         content TEXT,
-        metadata TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        metadata TEXT
     )"""
     )
     cursor.execute(
@@ -58,7 +58,7 @@ def init_sqlite_tables():
     conn.commit()
 
 
-def cleanup_data(directory):
+def cleanup_data(directory: str):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM snippets WHERE SOURCE LIKE ?", (f"{directory}%",))
     cursor.execute(
@@ -67,123 +67,100 @@ def cleanup_data(directory):
     conn.commit()
 
 
-def upsert_snippet(
-    modulepath: str,
-    identifier: Optional[str],
-    filepath: str,
-    content: str,
-    start_line: int,
-    end_line: int,
-    type: str,
-):
+def upsert_snippet(snippet: Snippet):
     cursor = conn.cursor()
-    snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
+    # snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
     cursor.execute(
         """
                     INSERT OR REPLACE INTO snippets (id, source, module, name, content, start_line, end_line, type)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-        (
-            snippet_id,
-            filepath,
-            modulepath,
-            identifier,
-            content,
-            start_line,
-            end_line,
-            type,
-        ),
+        astuple(snippet),
     )
 
 
-def upsert_dependency(modulepath: str, identifier: Optional[str], dependency_name: str):
+def upsert_dependency(dependency: Dependency):
     cursor = conn.cursor()
-    snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
     cursor.execute(
         "INSERT OR REPLACE INTO dependencies (snippet_id, dependency_name) VALUES (?, ?)",
-        (snippet_id, dependency_name),
+        astuple(dependency),
     )
 
 
-def get_all_snippets():
+def get_all_snippets() -> List[Snippet]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, source, content, start_line, end_line FROM snippets WHERE type = 'code'"
+        "SELECT id, source, module, name, content, start_line, end_line, type FROM snippets WHERE type = 'code'"
     )
-    return cursor.fetchall()
+    return [Snippet(*row) for row in cursor.fetchall()]
 
 
-def get_all_dependencies():
+def get_all_dependencies() -> List[Dependency]:
     cursor = conn.cursor()
-    cursor.execute("SELECT snippet_id, dependency_name FROM dependencies")
-    return cursor.fetchall()
+    cursor.execute("SELECT id, snippet_id, dependency_name FROM dependencies")
+    return [Dependency(*row) for row in cursor.fetchall()]
 
 
-def fetch_dependencies(snippet_id):
+def fetch_dependencies(snippet_id: str) -> List[Dependency]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?",
+        "SELECT d.snippet_id, d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?",
         (snippet_id,),
     )
-    snippet_ids = cursor.fetchall()
-    return [snippet_id[0] for snippet_id in snippet_ids]
+    return [Dependency(*row) for row in cursor.fetchall()]
 
 
-def fetch_dependents(snippet_id):
+def fetch_dependents(snippet_id: str) -> List[Dependency]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT snippet_id FROM dependencies WHERE dependency_name = ?", (snippet_id,)
+        "SELECT snippet_id, d.dependency_name FROM dependencies WHERE dependency_name = ?",
+        (snippet_id,),
     )
-    snippet_ids = cursor.fetchall()
-    return [snippet_id[0] for snippet_id in snippet_ids]
+    return [Dependency(*row) for row in cursor.fetchall()]
 
 
-def fetch_snippet_ids(directory):
+def fetch_snippets_by_directory(directory: str) -> List[Snippet]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id FROM snippets WHERE source LIKE ? ORDER BY id", (f"{directory}%",)
+        "SELECT id, source, module, name, content, start_line, end_line, type FROM snippets WHERE source LIKE ? ORDER BY id",
+        (f"{directory}%",),
     )
-    snippet_ids = cursor.fetchall()
-    return [snippet_id[0] for snippet_id in snippet_ids]
+    return [Snippet(*row) for row in cursor.fetchall()]
 
 
-def fetch_snippets_by_source(source):
+def fetch_snippets_by_source(source: str) -> List[Snippet]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT name FROM snippets WHERE source = ? AND name IS NOT NULL and name != '_imports_' ORDER BY name",
+        "SELECT id, source, module, name, content, start_line, end_line, type FROM snippets WHERE source = ? AND name IS NOT NULL and name != '_imports_' ORDER BY name",
         (source,),
     )
-    names = cursor.fetchall()
-    return [name[0] for name in names]
+    return [Snippet(*row) for row in cursor.fetchall()]
 
 
-def fetch_snippet_by_id(id):
+def fetch_snippet_by_id(id: str) -> Optional[Snippet]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT content, source, start_line, end_line FROM snippets WHERE id = ?",
+        "SELECT id, source, module, name, content, start_line, end_line, type FROM snippets WHERE id = ?",
         (id,),
     )
     snippet = cursor.fetchone()
-    return snippet
+    return Snippet(*snippet)
 
 
-def load_chat_history():
+def load_chat_history() -> List[ChatMessage]:
     cursor = conn.cursor()
     cursor.execute("SELECT role, content, metadata FROM messages ORDER BY ordinal")
     return [
-        {"role": r[0], "content": r[1], "metadata": json.loads(r[2])}
-        for r in cursor.fetchall()
+        ChatMessage(row[0], row[1], json.loads(row[2])) for row in cursor.fetchall()
     ]
 
 
-def save_chat_history(chat_history):
+def upsert_message(message: ChatMessage, ordinal: int):
     cursor = conn.cursor()
-    for index, msg in enumerate(chat_history):
-        cursor.execute(
-            "INSERT OR REPLACE INTO messages (ordinal, role, content, metadata) VALUES (?, ?, ?, ?)",
-            (index + 1, msg["role"], msg["content"], json.dumps(msg["metadata"])),
-        )
-    conn.commit()
+    cursor.execute(
+        "INSERT OR REPLACE INTO messages (ordinal, role, content, metadata) VALUES (?, ?, ?, ?)",
+        (ordinal, message.role, message.content, json.dumps(message.metadata)),
+    )
 
 
 def clear_chat_history():
