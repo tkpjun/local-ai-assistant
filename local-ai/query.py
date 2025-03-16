@@ -14,6 +14,7 @@ from lib.db import (
     clear_chat_history,
     load_chat_history,
     save_chat_history,
+    upsert_assistant,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -24,12 +25,10 @@ from lib.chat import (
     retry_last_message,
 )
 from lib.assistants import (
-    add_assistant,
     update_prompt,
-    assistants,
-    get_assistant,
+    get_all_assistants,
     update_llm,
-update_context_limit,
+    update_context_limit, add_assistant,
 )
 
 load_dotenv(override=False)
@@ -79,12 +78,12 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
                 @gr.render(triggers=[new_name.submit, chat_interface.load])
                 def generate_assistants():
-                    for assistant in assistants:
-                        with gr.Accordion(assistant.name, open=True):
+                    for assistant in get_all_assistants():
+                        with gr.Accordion(assistant.name, open=not assistant.llm):
                             llm_selector = gr.Dropdown(
                                 label=f"Assistant model",
                                 choices=installed_llms,
-                                value=get_assistant(assistant.name).llm,
+                                value=assistant.llm,
                                 elem_id=f"llm_{assistant.name}",
                             )
                             context_limit_input = gr.Number(
@@ -103,7 +102,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
                             )
                             # Save button callback
                             prompt_input.submit(
-                                lambda pn=prompt_input, n=assistant.name: update_prompt(n, pn),
+                                lambda pn=prompt_input, n=assistant.name: update_prompt(
+                                    n, pn
+                                ),
                                 inputs=[prompt_input],
                                 outputs=None,
                             )
@@ -115,13 +116,15 @@ with gr.Blocks(fill_height=True) as chat_interface:
                                 outputs=None,
                             )
                             prompt_input.submit(
-                                lambda cl=context_limit_input, n=assistant.name: update_context_limit(n, int(cl)),
+                                lambda cl=context_limit_input, n=assistant.name: update_context_limit(
+                                    n, int(cl)
+                                ),
                                 inputs=[context_limit_input],
                                 outputs=None,
                             )
 
                 new_name.render()
-                # Add button handler
+                # TODO update assistant selector
                 new_name.submit(add_assistant, inputs=[new_name], outputs=None)
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
@@ -131,16 +134,10 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 build_prompt_md_button = gr.Button("Generate")
         with gr.Column(scale=1, min_width=400):
             with gr.Accordion("General", open=True):
-                selected_llm = gr.Dropdown(
-                    label="Selected LLM",
-                    choices=installed_llms,
-                    value=installed_llms[0],
-                )
-                assistant = gr.Dropdown(
-                    label="Selected assistant", choices=["Coder"], value="Coder"
-                )
-                context_limit = gr.Number(
-                    label="Context limit in tokens", value=8192, precision=0
+                assistants = get_all_assistants()
+                assistant_ids = [assistant.name for assistant in assistants]
+                assistant_selector = gr.Dropdown(
+                    label="Selected assistant", choices=assistant_ids
                 )
                 options = gr.CheckboxGroup(
                     choices=["Project dependencies", "File structure"],
@@ -200,9 +197,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            context_limit,
+            assistant_selector,
             options,
-            selected_llm,
         ],
         outputs=chatbot,
     )
@@ -213,9 +209,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
         [
             chatbot,
             file_reference,
-            context_limit,
+            assistant_selector,
             options,
-            selected_llm,
         ],
         chatbot,
     )
@@ -225,9 +220,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            context_limit,
+            assistant_selector,
             options,
-            selected_llm,
         ],
         outputs=prompt_box,
     )
@@ -237,9 +231,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
             chatbot,
             user_input,
             file_reference,
-            context_limit,
+            assistant_selector,
             options,
-            selected_llm,
         ],
         outputs=prompt_md_box,
     )

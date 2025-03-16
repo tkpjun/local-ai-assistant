@@ -1,6 +1,8 @@
 import sqlite3
 import json
-from typing import Optional
+from typing import Optional, List
+from lib.types import Assistant
+from dataclasses import astuple
 
 sqlite3.threadsafety = 3
 # Connect to SQLite database (or create it if it doesn't exist)
@@ -41,6 +43,16 @@ def init_sqlite_tables():
         metadata TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )"""
+    )
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS assistants (
+        name TEXT PRIMARY KEY,
+        llm TEXT,
+        prompt TEXT,
+        context_limit INTEGER
+    )
+    """
     )
     conn.commit()
 
@@ -176,3 +188,39 @@ def save_chat_history(chat_history):
 def clear_chat_history():
     cursor = conn.cursor()
     cursor.execute("DELETE FROM messages")
+
+
+def upsert_assistant(assistant: Assistant):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+                    INSERT OR REPLACE INTO assistants (name, llm, context_limit, prompt)
+                    VALUES (?, ?, ?, ?)
+                """,
+        astuple(assistant),
+    )
+    conn.commit()
+
+
+def delete_assistant(name: str):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM assistants WHERE name = ?", (name,))
+    conn.commit()
+
+
+def fetch_all_assistants() -> List[Assistant]:
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, llm, context_limit, prompt FROM assistants")
+    return [Assistant(*row) for row in cursor.fetchall()]
+
+
+def fetch_assistant_by_name(name: str) -> Optional[Assistant]:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT name, llm, context_limit, prompt FROM assistants WHERE name = ?",
+        (name,),
+    )
+    row = cursor.fetchone()
+    if row:
+        return Assistant(*row)
+    return None

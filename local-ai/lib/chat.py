@@ -6,6 +6,7 @@ import sys
 from lib.db import (
     fetch_snippets_by_source,
     fetch_snippet_by_id,
+    fetch_assistant_by_name,
 )
 from lib.ollama import (
     run_ollama_model_in_background,
@@ -24,10 +25,10 @@ def build_prompt(
     history,
     user_message,
     file_reference,
-    context_limit,
+    selected_assistant,
     options,
-    selected_llm,
 ):
+    assistant = fetch_assistant_by_name(selected_assistant)
     history = history or []  # Ensure history is not None
     context_prompt = ""
 
@@ -91,10 +92,10 @@ def build_prompt(
         context_prompt += "```"
 
     running_llms = get_running_ollama_models()
-    if not running_llms.get(selected_llm):
+    if not running_llms.get(assistant.llm):
         for llm in running_llms.keys():
             stop_ollama_model_by_name(llm)
-        run_ollama_model_in_background(selected_llm)
+        run_ollama_model_in_background(assistant.llm)
 
     system_prompt_with_context = get_assistant_prompt()
     if context_prompt != "":
@@ -106,9 +107,9 @@ def build_prompt(
     if user_message:
         chat_messages.append({"role": "user", "content": user_message})
     return {
-        "model": selected_llm,
+        "model": assistant.llm,
         "messages": chat_messages,
-        "options": {"num_ctx": context_limit},
+        "options": {"num_ctx": assistant.context_limit},
     }
 
 
@@ -116,17 +117,15 @@ def build_prompt_code(
     history,
     user_message,
     file_reference,
-    context_limit,
+    selected_assistant,
     options,
-    selected_llm,
 ):
     prompt = build_prompt(
         history,
         user_message,
         file_reference,
-        context_limit,
+        selected_assistant,
         options,
-        selected_llm,
     )
     markdown = ""
     for message in prompt["messages"]:
@@ -139,18 +138,16 @@ def stream_chat(
     history,
     user_message,
     file_reference,
-    context_limit,
+    selected_assistant,
     options,
-    selected_llm,
 ):
     history = history or []  # Ensure history is not None
     prompt = build_prompt(
         history,
         user_message,
         file_reference,
-        context_limit,
+        selected_assistant,
         options,
-        selected_llm,
     )
     response = requests.post(
         os.getenv("LLM_CHAT_ENDPOINT"),
