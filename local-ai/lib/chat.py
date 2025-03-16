@@ -120,6 +120,7 @@ def build_prompt_code(
     selected_assistant,
     options,
 ):
+    assistant = fetch_assistant_by_name(selected_assistant)
     prompt = build_prompt(
         history,
         user_message,
@@ -127,7 +128,10 @@ def build_prompt_code(
         selected_assistant,
         options,
     )
-    markdown = ""
+    markdown = f"# Assistant: {assistant.name}\n"
+    markdown += f"## Model: {assistant.llm}\n"
+    markdown += f"## Context limit: {assistant.context_limit}\n"
+    markdown += "\n***\n\n"
     for message in prompt["messages"]:
         token_amount = len(tokenizer.encode(text=message["content"]))
         markdown += f"\n# (tokens: {token_amount}) {message["role"]}:\n{message["content"]}\n\n***\n\n"
