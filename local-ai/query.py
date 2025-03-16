@@ -1,5 +1,6 @@
 import gradio as gr
 import sys
+import os
 from dotenv import load_dotenv
 import tiktoken
 from lib.ollama import (
@@ -27,7 +28,7 @@ from lib.assistants import add_assistant, update_prompt, assistants
 load_dotenv(override=False)
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
-directory = sys.argv[1]
+directory = os.path.abspath(sys.argv[1])
 source_directory = sys.argv[2]
 
 installed_llms = get_ollama_model_names()

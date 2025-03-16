@@ -17,7 +17,7 @@ from lib.context import get_git_tracked_files, get_project_dependencies
 from lib.assistants import get_assistant_prompt
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
-directory = sys.argv[1]
+directory = os.path.abspath(sys.argv[1])
 
 
 def build_prompt(
