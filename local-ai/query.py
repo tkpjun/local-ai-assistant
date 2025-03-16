@@ -23,7 +23,14 @@ from lib.chat import (
     build_prompt_code,
     retry_last_message,
 )
-from lib.assistants import add_assistant, update_prompt, assistants
+from lib.assistants import (
+    add_assistant,
+    update_prompt,
+    assistants,
+    get_assistant,
+    update_llm,
+update_context_limit,
+)
 
 load_dotenv(override=False)
 
@@ -72,21 +79,44 @@ with gr.Blocks(fill_height=True) as chat_interface:
 
                 @gr.render(triggers=[new_name.submit, chat_interface.load])
                 def generate_assistants():
-                    for name, prompt in assistants:
-                        with gr.Accordion(name, open=True):
+                    for assistant in assistants:
+                        with gr.Accordion(assistant.name, open=True):
+                            llm_selector = gr.Dropdown(
+                                label=f"Assistant model",
+                                choices=installed_llms,
+                                value=get_assistant(assistant.name).llm,
+                                elem_id=f"llm_{assistant.name}",
+                            )
+                            context_limit_input = gr.Number(
+                                label=f"Context limit in tokens for {assistant.name}",
+                                value=assistant.context_limit,
+                                precision=0,
+                                elem_id=f"context_limit_{assistant.name}",
+                            )
                             prompt_input = gr.Textbox(
-                                label=f"Context length: {len(tokenizer.encode(prompt))} tokens",
-                                value=prompt,
-                                lines=15,
+                                label=f"Context length: {len(tokenizer.encode(assistant.prompt))} tokens",
+                                value=assistant.prompt,
+                                lines=12,
                                 max_lines=30,
-                                elem_id=f"prompt_{name}",
+                                elem_id=f"prompt_{assistant.name}",
                                 submit_btn="Save",
                             )
-
                             # Save button callback
                             prompt_input.submit(
-                                lambda pn=prompt_input, n=name: update_prompt(n, pn),
+                                lambda pn=prompt_input, n=assistant.name: update_prompt(n, pn),
                                 inputs=[prompt_input],
+                                outputs=None,
+                            )
+                            prompt_input.submit(
+                                lambda ln=llm_selector, n=assistant.name: update_llm(
+                                    n, ln
+                                ),
+                                inputs=[llm_selector],
+                                outputs=None,
+                            )
+                            prompt_input.submit(
+                                lambda cl=context_limit_input, n=assistant.name: update_context_limit(n, int(cl)),
+                                inputs=[context_limit_input],
                                 outputs=None,
                             )
 
