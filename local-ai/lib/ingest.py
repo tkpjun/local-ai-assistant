@@ -1,4 +1,5 @@
 import os
+import ast
 import re
 
 from lib.chunking import chunk_python_code, chunk_js_ts_code
@@ -44,10 +45,101 @@ def delete_file_snippets(directory, file):
     cleanup_data(filepath)
 
 
+def resolve_relative_import(file_path, module, level):
+    """
+    Resolve a relative import (e.g., '.utils') to an absolute path.
+
+    Args:
+        file_path: Path to the current file.
+        module: The module name from the import (e.g., 'utils' for 'from .utils import x').
+        level: The relative import level (e.g., 1 for 'from .utils import x').
+
+    Returns:
+        The resolved module path (e.g., 'my_package.utils').
+    """
+    if level == 0:
+        return module
+
+    # Get the directory of the current file
+    current_dir = os.path.dirname(file_path)
+
+    # Calculate the package path (assuming it's a Python package)
+    # Note: This requires the file to be part of a package with __init__.py files
+    package_path = current_dir.replace(os.path.sep, ".")
+    parent_package = package_path.rsplit(".", level)[0] if level else package_path
+
+    # Combine with the module name
+    if module:
+        return f"{parent_package}.{module}"
+    else:
+        return parent_package
+
+
+# TODO handle dependencies internal to the file
+def process_python_imports(
+    source_code, file_path, snippets: List[Snippet]
+) -> List[Dependency]:
+    tree = ast.parse(source_code)
+    imports = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if isinstance(node, ast.Import):
+                # Handle 'import x as y' style
+                for alias in node.names:
+                    module_name = alias.name
+                    asname = alias.asname or module_name
+                    imports.append(
+                        {
+                            "module": module_name,
+                            "name": asname,
+                            "type": "import",
+                            "lineno": node.lineno,
+                        }
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                # Handle 'from module import x as y' style
+                module = node.module
+                level = node.level
+                resolved_module = resolve_relative_import(file_path, module, level)
+                for alias in node.names:
+                    imported_name = alias.name
+                    asname = alias.asname or imported_name
+                    imports.append(
+                        {
+                            "module": resolved_module,
+                            "name": asname,
+                            "type": "from_import",
+                            "lineno": node.lineno,
+                        }
+                    )
+
+    dependencies: List[Dependency] = []
+
+    for snippet in snippets:
+        content = snippet.content
+        for imp in imports:
+            if imp["name"] in content:
+                dependency_name = (
+                    imp["name"]
+                    if imp["module"] == imp["name"]
+                    else f"{imp['module']}.{imp['name']}"
+                )
+                dependencies.append(Dependency(snippet.id, dependency_name))
+
+    return dependencies
+
+
 # Function to process imports and store dependencies
 def process_imports(snippets: List[Snippet]):
     filepath = snippets[0].source
     full_content = snippets[0].content
+    if filepath.endswith(".py"):
+        dependencies = process_python_imports(full_content, filepath, snippets)
+        for dependency in dependencies:
+            upsert_dependency(dependency)
+        return
+
     # Detect imports at the beginning of the file (Python and JS/TS)
     # TODO fix Python multiline imports
     regex_py = r"^(?:import\s+\S+(?:\s+as\s+\S+)?|from\s+\S+\s+import\s+[^,\n]+(?:,\s*[^,\n]+)*)"

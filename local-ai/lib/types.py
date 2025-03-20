@@ -17,6 +17,7 @@ class Chunk:
     content: str
     start_line: int
     end_line: int
+    type: str
 
 
 @dataclass

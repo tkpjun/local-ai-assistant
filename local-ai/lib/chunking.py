@@ -1,91 +1,102 @@
 import re
+import ast
+import tokenize
+import io
 
 from typing import List
 from lib.types import Chunk
 
 
-def chunk_python_code(text: str) -> List[Chunk]:
-    lines = text.splitlines()
-    chunk_first_line = 1
+def get_comments(source):
+    """Extract comments from source code using tokenize."""
+    comments = []
+    try:
+        tokens = tokenize.tokenize(io.BytesIO(source.encode("utf-8")).readline)
+        for toktype, tokval, start, end, line in tokens:
+            if toktype == tokenize.COMMENT:
+                comments.append((start[0], tokval))
+    except tokenize.TokenError:
+        pass  # Handle syntax errors if needed
+    return comments
+
+
+def get_source_segment(source, node):
+    """Wrapper around ast.get_source_segment for compatibility."""
+    return ast.get_source_segment(source, node)
+
+
+def chunk_python_code(source_text):
+    """Chunk Python code using AST and tokenize."""
     chunks: List[Chunk] = []
-    current_chunk: List[str] = []
-    preceding_comments: List[str] = []
+    module = ast.parse(source_text)
+    top_level_nodes = module.body
+    comments = get_comments(source_text)
 
-    # Regular expression to match top-level variable assignments
-    var_assignment_pattern = re.compile(r"^\s*(\w+)\s*=")
+    # Process imports first
+    import_nodes = [
+        n for n in top_level_nodes if isinstance(n, (ast.Import, ast.ImportFrom))
+    ]
+    if import_nodes:
+        first_import = import_nodes[0]
+        preceding_comments = [
+            (line, c) for line, c in comments if line < first_import.lineno
+        ]
+        preceding_str = "\n".join(
+            c[1] for c in sorted(preceding_comments, key=lambda x: x[0])
+        )
+        imports_code = "".join(
+            get_source_segment(source_text, node) for node in import_nodes
+        )
+        content = f"{preceding_str}\n{imports_code}" if preceding_str else imports_code
+        start_line = first_import.lineno
+        end_line = import_nodes[-1].lineno + len(imports_code.split("\n")) - 1
+        chunks.append(Chunk("_imports_", content, start_line, end_line, "imports"))
 
-    import_lines = []
-    seen_non_import_line = False
+    # Process non-import nodes
+    non_import_nodes = [
+        n for n in top_level_nodes if not isinstance(n, (ast.Import, ast.ImportFrom))
+    ]
+    previous_end = 0  # Track end line of previous node
 
-    for line_number, line in enumerate(lines):
-        stripped_line = line.strip()
+    for node in non_import_nodes:
+        node_code = get_source_segment(source_text, node)
+        if not node_code:
+            continue  # Skip if code couldn't be retrieved
 
-        if not seen_non_import_line and (
-            line.startswith("import ") or line.startswith("from ")
-        ):
-            import_lines.append(line)
-            continue
-        elif line:
-            seen_non_import_line = True
+        start_line = node.lineno
+        lines = node_code.count("\n") + 1
+        end_line = start_line + lines - 1
 
-        # Check for lines with zero indentation (new top-level block)
-        if (
-            stripped_line and not line.startswith(" ") and not line.startswith(")")
-        ):  # Indentation level 0
-            if current_chunk:  # If a chunk is being built, process it
-                # Process the previous chunk
-                chunk_text = "\n".join(current_chunk).strip()
-                full_chunk = "\n".join(preceding_comments + [chunk_text]).strip()
+        # Find preceding comments between previous_end and start_line
+        preceding = [c for c in comments if previous_end < c[0] < start_line]
+        preceding_str = "\n".join(c[1] for c in sorted(preceding, key=lambda x: x[0]))
 
-                if chunk_text.startswith(("class ", "def ")):  # Only keep class/def
-                    # Extract identifier
-                    match = re.match(r"(class|def)\s+(\w+)", chunk_text)
-                    identifier = match.group(2) if match else None
-                    chunks.append(
-                        Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
-                    )
-                    preceding_comments.clear()  # Clear comments after processing
-                elif var_assignment_pattern.match(
-                    chunk_text
-                ):  # Check for variable assignment
-                    # Extract the variable name as the identifier
-                    match = var_assignment_pattern.match(chunk_text)
-                    identifier = match.group(1) if match else None
-                    chunks.append(
-                        Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
-                    )
-                    preceding_comments.clear()  # Clear comments after processing
-
-                chunk_first_line = line_number
-                current_chunk = []  # Reset for the new chunk
-
-        if line.startswith("#"):
-            preceding_comments.append(line)
+        # Determine node name
+        name = ""
+        type = ""
+        if isinstance(node, ast.FunctionDef):
+            name = node.name
+            type = "function"
+        elif isinstance(node, ast.ClassDef):
+            name = node.name
+            type = "class"
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            target = getattr(node, "targets", [None])[0] or getattr(
+                node, "target", None
+            )
+            if isinstance(target, ast.Name):
+                name = target.id
+                type = "variable"
+            else:
+                name = f"{start_line}"
+                type = "assignment"
         else:
-            current_chunk.append(line)  # Add line to the current chunk
+            name = f"{start_line}"
+            type = "other"
 
-    # Process the last chunk if it exists
-    if current_chunk:
-        chunk_text = "\n".join(current_chunk).strip()
-        full_chunk = "\n".join(preceding_comments + [chunk_text]).strip()
-
-        if chunk_text.startswith(("class ", "def ")):
-            match = re.match(r"(class|def)\s+(\w+)", chunk_text)
-            identifier = match.group(2) if match else None
-            chunks.append(
-                Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
-            )
-        elif var_assignment_pattern.match(chunk_text):  # Check for variable assignment
-            match = var_assignment_pattern.match(chunk_text)
-            identifier = match.group(1) if match else None
-            chunks.append(
-                Chunk(identifier, full_chunk, chunk_first_line, line_number - 1)
-            )
-
-    # Add imports as the first chunk with identifier _imports_
-    if import_lines:
-        import_chunk_text = "\n".join(import_lines).strip()
-        chunks.insert(0, Chunk("_imports_", import_chunk_text, 1, len(import_lines)))
+        content = f"{preceding_str}\n{node_code}" if preceding_str else node_code
+        chunks.append(Chunk(name, content, start_line, end_line, type))
+        previous_end = end_line
 
     return chunks
 
