@@ -39,18 +39,11 @@ directory = os.path.abspath(sys.argv[1])
 source_directory = sys.argv[2]
 
 installed_llms = get_ollama_model_names()
-snippet_ids: List[str] = []
 last_file_reference_value = []
-
-
-def refresh_snippets():
-    global snippet_ids
-    snippet_ids = [snippet.id for snippet in fetch_snippets_by_directory(directory)]
 
 
 init_sqlite_tables()
 initial_history = load_chat_history()
-refresh_snippets()
 
 # New assistant input
 new_name = gr.Textbox(
@@ -161,7 +154,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
             with gr.Accordion("Snippets"):
                 file_reference = gr.Dropdown(
                     label="Select snippet by module",
-                    choices=snippet_ids,
+                    choices=[
+                        snippet.id for snippet in fetch_snippets_by_directory(directory)
+                    ],
                     value=None,
                     allow_custom_value=True,
                     multiselect=True,
@@ -255,8 +250,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
     )
 
     def update_snippets():
-        refresh_snippets()
-        return gr.update(choices=snippet_ids)
+        return gr.update(
+            choices=[snippet.id for snippet in fetch_snippets_by_directory(directory)]
+        )
 
     file_reference.focus(update_snippets, outputs=[file_reference])
 

@@ -64,35 +64,35 @@ def build_prompt(
         context_snippets.append(fetch_snippet_by_id(snippet_id))
 
     if context_snippets:
-        for _, source, _, _ in context_snippets:
-            if file_order.count(source) > 0:
-                file_order.remove(source)
-            file_order.append(source)
+        for snippet in context_snippets:
+            if file_order.count(snippet.source) > 0:
+                file_order.remove(snippet.source)
+            file_order.append(snippet.source)
 
         seen = set()
         context_snippets = [
-            dep
-            for dep in context_snippets
-            if (dep[1], dep[2], dep[3]) not in seen
-            and not seen.add((dep[1], dep[2], dep[3]))
+            snippet
+            for snippet in context_snippets
+            if (snippet.id) not in seen and not seen.add(snippet.id)
         ]
         context_snippets = sorted(
-            context_snippets, key=lambda dep: (file_order.index(dep[1]), dep[2])
+            context_snippets,
+            key=lambda snippet: (file_order.index(snippet.source), snippet.id),
         )
 
         context_prompt += (
             f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
         )
         current_source = ""
-        for content, source, _, _ in context_snippets:
-            if source != current_source:
+        for snippet in context_snippets:
+            if snippet.source != current_source:
                 if current_source:
                     context_prompt += "```\n\n"
-                context_prompt += f"## {source}:\n```\n"
-                current_source = source
+                context_prompt += f"## {snippet.source}:\n```\n"
+                current_source = snippet.source
             else:
                 context_prompt += "\n"
-            context_prompt += f"{content}\n"
+            context_prompt += f"{snippet.content}\n"
         context_prompt += "```"
 
     running_llms = get_running_ollama_models()
