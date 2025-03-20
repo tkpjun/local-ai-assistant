@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from typing import Optional, List
-from lib.types import Assistant, Snippet, Dependency
+from lib.types import Assistant, Snippet, Dependency, UIState
 from gradio import ChatMessage
 from dataclasses import astuple
 
@@ -54,6 +54,14 @@ def init_sqlite_tables():
         response_size_limit INTEGER
     )
     """
+    )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS ui_state (
+            assistant_name TEXT,
+            extra_content_options TEXT,
+            selected_snippets TEXT,
+            PRIMARY KEY (assistant_name)
+        )"""
     )
     conn.commit()
 
@@ -203,4 +211,35 @@ def fetch_assistant_by_name(name: str) -> Optional[Assistant]:
     row = cursor.fetchone()
     if row:
         return Assistant(*row)
+    return None
+
+
+def upsert_ui_state(ui_state: UIState):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+            INSERT OR REPLACE INTO ui_state (assistant_name, extra_content_options, selected_snippets)
+            VALUES (?, ?, ?)
+        """,
+        (
+            ui_state.assistant_name,
+            json.dumps(ui_state.extra_content_options),
+            json.dumps(ui_state.selected_snippets),
+        ),
+    )
+    conn.commit()
+
+
+def fetch_ui_state() -> Optional[UIState]:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT assistant_name, extra_content_options, selected_snippets FROM ui_state"
+    )
+    state = cursor.fetchone()
+    if state:
+        return UIState(
+            assistant_name=state[0],
+            extra_content_options=json.loads(state[1]),
+            selected_snippets=json.loads(state[2]),
+        )
     return None

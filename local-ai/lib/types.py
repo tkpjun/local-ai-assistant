@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -34,3 +35,10 @@ class Snippet:
 class Dependency:
     snippet_id: str
     dependency_name: str
+
+
+@dataclass
+class UIState:
+    assistant_name: str = ""
+    extra_content_options: List[str] = None
+    selected_snippets: List[str] = None

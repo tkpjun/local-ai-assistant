@@ -14,6 +14,8 @@ from lib.db import (
     fetch_dependents,
     clear_chat_history,
     load_chat_history,
+    fetch_ui_state,
+    upsert_ui_state,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -31,6 +33,7 @@ from lib.assistants import (
     update_response_limit,
     add_assistant,
 )
+from lib.types import UIState
 
 load_dotenv(override=False)
 
@@ -44,6 +47,7 @@ last_file_reference_value = []
 
 init_sqlite_tables()
 initial_history = load_chat_history()
+initial_ui_state = fetch_ui_state() or UIState("Coder")
 
 # New assistant input
 new_name = gr.Textbox(
@@ -145,11 +149,14 @@ with gr.Blocks(fill_height=True) as chat_interface:
                 assistants = get_all_assistants()
                 assistant_ids = [assistant.name for assistant in assistants]
                 assistant_selector = gr.Dropdown(
-                    label="Selected assistant", choices=assistant_ids
+                    label="Selected assistant",
+                    choices=assistant_ids,
+                    value=initial_ui_state.assistant_name,
                 )
                 options = gr.CheckboxGroup(
                     choices=["Project dependencies", "File structure"],
                     label="Embed extra context",
+                    value=initial_ui_state.extra_content_options,
                 )
             with gr.Accordion("Snippets"):
                 file_reference = gr.Dropdown(
@@ -157,7 +164,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     choices=[
                         snippet.id for snippet in fetch_snippets_by_directory(directory)
                     ],
-                    value=None,
+                    value=initial_ui_state.selected_snippets,
                     allow_custom_value=True,
                     multiselect=True,
                 )
@@ -263,6 +270,35 @@ with gr.Blocks(fill_height=True) as chat_interface:
     ingest_button.click(click_ingest, outputs=[file_reference])
 
     clear_button.click(clear_chat_history)
+
+    def save_ui_state(assistant_name, extra_content_options, selected_snippets):
+        ui_state = UIState(
+            assistant_name=assistant_name,
+            extra_content_options=list(extra_content_options),
+            selected_snippets=list(selected_snippets),
+        )
+        upsert_ui_state(ui_state)
+
+    # Update assistant selector
+    assistant_selector.change(
+        fn=save_ui_state,
+        inputs=[assistant_selector, options, file_reference],
+        outputs=None,
+    )
+
+    # Update options checkbox
+    options.change(
+        fn=save_ui_state,
+        inputs=[assistant_selector, options, file_reference],
+        outputs=None,
+    )
+
+    # Update file reference dropdown
+    file_reference.change(
+        fn=save_ui_state,
+        inputs=[assistant_selector, options, file_reference],
+        outputs=None,
+    )
 
 start_watcher(directory, source_directory)
 # Launch the Gradio app
