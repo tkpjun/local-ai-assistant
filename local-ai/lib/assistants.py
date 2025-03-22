@@ -27,34 +27,6 @@ def get_all_assistants():
     return assistants_data
 
 
-def update_prompt(name, new_prompt):
-    assistant = fetch_assistant_by_name(name)
-    if assistant:
-        assistant.prompt = new_prompt
-        upsert_assistant(assistant)
-
-
-def update_llm(name, new_llm):
-    assistant = fetch_assistant_by_name(name)
-    if assistant:
-        assistant.llm = new_llm
-        upsert_assistant(assistant)
-
-
-def update_context_limit(name, new_context_limit):
-    assistant = fetch_assistant_by_name(name)
-    if assistant:
-        assistant.context_limit = new_context_limit
-        upsert_assistant(assistant)
-
-
-def update_response_limit(name, new_limit):
-    assistant = fetch_assistant_by_name(name)
-    if assistant:
-        assistant.response_size_limit = new_limit
-        upsert_assistant(assistant)
-
-
 def get_assistant_prompt():
     assistant = fetch_assistant_by_name("Coder")
     if assistant:

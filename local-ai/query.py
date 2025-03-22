@@ -16,6 +16,7 @@ from lib.db import (
     load_chat_history,
     fetch_ui_state,
     upsert_ui_state,
+    upsert_assistant,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -26,14 +27,10 @@ from lib.chat import (
     retry_last_message,
 )
 from lib.assistants import (
-    update_prompt,
     get_all_assistants,
-    update_llm,
-    update_context_limit,
-    update_response_limit,
     add_assistant,
 )
-from lib.types import UIState
+from lib.types import UIState, Assistant
 
 load_dotenv(override=False)
 
@@ -105,33 +102,22 @@ with gr.Blocks(fill_height=True) as chat_interface:
                                 elem_id=f"prompt_{assistant.name}",
                                 submit_btn="Save",
                             )
-                            # Save button callback
                             prompt_input.submit(
-                                lambda pn=prompt_input, n=assistant.name: update_prompt(
-                                    n, pn
+                                lambda llm_selector, context_limit_input, response_limit_input, prompt_input: upsert_assistant(
+                                    Assistant(
+                                        assistant.name,
+                                        llm_selector,
+                                        context_limit_input,
+                                        response_limit_input,
+                                        prompt_input,
+                                    )
                                 ),
-                                inputs=[prompt_input],
-                                outputs=None,
-                            )
-                            prompt_input.submit(
-                                lambda ln=llm_selector, n=assistant.name: update_llm(
-                                    n, ln
-                                ),
-                                inputs=[llm_selector],
-                                outputs=None,
-                            )
-                            prompt_input.submit(
-                                lambda cl=context_limit_input, n=assistant.name: update_context_limit(
-                                    n, int(cl)
-                                ),
-                                inputs=[context_limit_input],
-                                outputs=None,
-                            )
-                            prompt_input.submit(
-                                lambda cl=response_limit_input, n=assistant.name: update_response_limit(
-                                    n, int(cl)
-                                ),
-                                inputs=[response_limit_input],
+                                inputs=[
+                                    llm_selector,
+                                    context_limit_input,
+                                    response_limit_input,
+                                    prompt_input,
+                                ],
                                 outputs=None,
                             )
 
