@@ -16,15 +16,6 @@ Example models:
 - deepseek-R1:14b (chain-of-thought, medium speed, lower memory consumption)
 - deepseek-R1:32b (chain-of-thought, slow, higher memory consumption)
 
-# Set up QDrant (not necessary at the time):
-```
-brew install podman
-podman machine init
-podman machine start
-podman pull qdrant/qdrant
-podman run -p 6333:6333 qdrant/qdrant
-```
-
 # Set up and run the project
 First, navigate to project root.
 

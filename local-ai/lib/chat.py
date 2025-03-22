@@ -1,20 +1,13 @@
 import json
-from itertools import takewhile
-
-import requests
 import os
 import tiktoken
 import sys
+import ollama
 from lib.db import (
     fetch_snippets_by_source,
     fetch_snippet_by_id,
     fetch_assistant_by_name,
     upsert_message,
-)
-from lib.ollama import (
-    run_ollama_model_in_background,
-    get_running_ollama_models,
-    stop_ollama_model_by_name,
 )
 from lib.context import get_git_tracked_files, get_project_dependencies
 from lib.assistants import get_assistant_prompt
@@ -97,12 +90,6 @@ def build_prompt(
             context_prompt += f"{snippet.content}\n"
         context_prompt += "```"
 
-    running_llms = get_running_ollama_models()
-    if not running_llms.get(assistant.llm):
-        for llm in running_llms.keys():
-            stop_ollama_model_by_name(llm)
-        run_ollama_model_in_background(assistant.llm)
-
     system_prompt_with_context = get_assistant_prompt()
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
@@ -179,63 +166,56 @@ def stream_chat(
         selected_assistant,
         options,
     )
-    response = requests.post(
-        os.getenv("LLM_CHAT_ENDPOINT"),
-        json={
-            **prompt,
-            "messages": [asdict(message) for message in prompt["messages"]],
-        },
+    assistant = fetch_assistant_by_name(selected_assistant)
+    stream = ollama.chat(
+        model=assistant.llm,
+        messages=[asdict(message) for message in prompt["messages"]],
+        options=prompt["options"],
         stream=True,
     )
-    response.raise_for_status()
     # Stream the response line by line
     bot_message = ""
     thinking = False
     first = True
-    for line in response.iter_lines():
-        if line:
-            if first:
-                first = False
-                new_message = ChatMessage("user", user_message, dict())
+    for data in stream:
+        if first:
+            first = False
+            new_message = ChatMessage("user", user_message, dict())
+            history.append(new_message)
+            upsert_message(new_message, len(history))
+        if (data["message"]["content"]) == "<think>":
+            thinking = True
+            continue
+        if (data["message"]["content"]) == "</think>":
+            thinking = False
+            continue
+
+        if thinking:
+            if dict.get(history[-1].metadata, "title") != "Thinking":
+                new_message = ChatMessage(
+                    "assistant",
+                    bot_message,
+                    {"title": "Thinking"},
+                )
                 history.append(new_message)
                 upsert_message(new_message, len(history))
-            try:
-                data = json.loads(line.decode("utf-8"))
-                if (data["message"]["content"]) == "<think>":
-                    thinking = True
-                    continue
-                if (data["message"]["content"]) == "</think>":
-                    thinking = False
-                    continue
-
-                if thinking:
-                    if dict.get(history[-1].metadata, "title") != "Thinking":
-                        new_message = ChatMessage(
-                            "assistant",
-                            bot_message,
-                            {"title": "Thinking"},
-                        )
-                        history.append(new_message)
-                        upsert_message(new_message, len(history))
-                    bot_message += data["message"]["content"]
-                    history[-1].content = bot_message
-                else:
-                    if (
-                        history[-1].role != "assistant"
-                        or dict.get(history[-1].metadata, "title") == "Thinking"
-                    ):
-                        bot_message = ""
-                        new_message = ChatMessage("assistant", bot_message, dict())
-                        history.append(new_message)
-                        upsert_message(new_message, len(history))
-                    bot_message += data["message"]["content"]
-                    history[-1].content = bot_message
-                    upsert_message(history[-1], len(history))
-                yield history
-                if data.get("done"):
-                    break
-            except json.JSONDecodeError:
-                continue
+            bot_message += data["message"]["content"]
+            history[-1].content = bot_message
+        else:
+            if (
+                history[-1].role != "assistant"
+                or dict.get(history[-1].metadata, "title") == "Thinking"
+            ):
+                bot_message = ""
+                new_message = ChatMessage("assistant", bot_message, dict())
+                history.append(new_message)
+                upsert_message(new_message, len(history))
+            bot_message += data["message"]["content"]
+            history[-1].content = bot_message
+            upsert_message(history[-1], len(history))
+        yield history
+        if data.get("done"):
+            break
 
 
 def delete_message(chatbot):

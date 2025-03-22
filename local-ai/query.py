@@ -3,10 +3,7 @@ import sys
 import os
 from dotenv import load_dotenv
 import tiktoken
-from typing import List
-from lib.ollama import (
-    get_ollama_model_names,
-)
+import ollama
 from lib.db import (
     fetch_snippets_by_directory,
     init_sqlite_tables,
@@ -38,7 +35,7 @@ tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = os.path.abspath(sys.argv[1])
 source_directory = sys.argv[2]
 
-installed_llms = get_ollama_model_names()
+installed_llms = [model.model for model in ollama.list()["models"]]
 last_file_reference_value = []
 
 
