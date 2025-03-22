@@ -1,4 +1,6 @@
 import json
+from itertools import takewhile
+
 import requests
 import os
 import tiktoken
@@ -105,17 +107,31 @@ def build_prompt(
     if context_prompt != "":
         system_prompt_with_context += f"\n\n{context_prompt}"
     system_tokens = len(tokenizer.encode(text=system_prompt_with_context))
-    chat_messages = [ChatMessage("system", system_prompt_with_context, metadata=dict())]
-    for message in history:
-        if message.metadata["title"] != "Thinking":
-            chat_messages.append(message)
+
+    chat_messages = []
+    tokens_used = 0
     if user_message:
         chat_messages.append(ChatMessage("user", user_message, metadata=dict()))
+        tokens_used += len(tokenizer.encode(user_message))
+    for message in reversed(history):
+        message_length = len(tokenizer.encode(message.content))
+        if (
+            tokens_used + message_length < assistant.context_limit
+            and message.metadata["title"] != "Thinking"
+        ):
+            chat_messages.append(message)
+            tokens_used += message_length
+    chat_messages.append(
+        ChatMessage("system", system_prompt_with_context, metadata=dict())
+    )
+    chat_messages = list(reversed(chat_messages))
     return {
         "model": assistant.llm,
         "messages": chat_messages,
         "options": {
-            "num_ctx": system_tokens + assistant.context_limit,
+            "num_ctx": max(
+                system_tokens + assistant.context_limit, assistant.response_size_limit
+            ),
             "num_predict": assistant.response_size_limit,
         },
     }

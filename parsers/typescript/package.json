@@ -1,0 +1,13 @@
+{
+  "name": "typescript-parser",
+  "version": "0.1.0",
+  "main": "parser.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "description": "",
+  "dependencies": {
+    "typescript": "^5.8.2"
+  }
+}

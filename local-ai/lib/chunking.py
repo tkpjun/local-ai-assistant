@@ -178,6 +178,7 @@ def chunk_js_ts_code(text: str) -> List[Chunk]:
                                 full_chunk,
                                 current_chunk_start_line,
                                 line_number - 1,
+                                "code",
                             )
                         )
 
@@ -198,6 +199,7 @@ def chunk_js_ts_code(text: str) -> List[Chunk]:
                 exports_chunk_text,
                 current_chunk_start_line,
                 line_number - 1,
+                "exports",
             )
         )
     elif current_chunk:
@@ -211,7 +213,13 @@ def chunk_js_ts_code(text: str) -> List[Chunk]:
         identifier = match.group(2) if match else None
         if identifier is not None:
             chunks.append(
-                Chunk(identifier, full_chunk, current_chunk_start_line, line_number - 1)
+                Chunk(
+                    identifier,
+                    full_chunk,
+                    current_chunk_start_line,
+                    line_number - 1,
+                    "code",
+                )
             )
 
     # Handle import lines

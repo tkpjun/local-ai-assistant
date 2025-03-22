@@ -162,7 +162,6 @@ def process_python_imports(
             Dependency(current_id, f"{current_snippet.module}._imports_")
         )
 
-    print(dependencies)
     return dependencies
 
 

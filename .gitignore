@@ -6,3 +6,5 @@
 *.db
 *.db-journal
 *.sqlite
+
+node_modules
