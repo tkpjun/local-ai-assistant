@@ -117,6 +117,8 @@ def process_python_imports(
     dependencies: List[Dependency] = []
 
     for snippet in snippets:
+        if snippet.type == "imports":
+            continue
         content = snippet.content
         for imp in imports:
             if imp["name"] in content:
@@ -127,6 +129,40 @@ def process_python_imports(
                 )
                 dependencies.append(Dependency(snippet.id, dependency_name))
 
+    # Process internal dependencies between chunks
+    snippet_names = {s.name: s.id for s in snippets if s.type != "file"}
+
+    for current_snippet in snippets:
+        if current_snippet.type == "imports":
+            continue
+        current_id = current_snippet.id
+        content = current_snippet.content
+        tree = ast.parse(content)
+        used_names = set()
+
+        # Collect names used in function calls
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    used_names.add(func.id)
+                elif isinstance(func, ast.Attribute):
+                    # Handle cases like obj.method() by checking the attribute's value
+                    value = func.value
+                    if isinstance(value, ast.Name):
+                        used_names.add(f"{value.id}.{func.attr}")
+
+        # Check for dependencies on other chunks
+        for name in used_names:
+            if name in snippet_names:
+                dependency_id = snippet_names[name]
+                if dependency_id != current_id:
+                    dependencies.append(Dependency(current_id, dependency_id))
+        dependencies.append(
+            Dependency(current_id, f"{current_snippet.module}._imports_")
+        )
+
+    print(dependencies)
     return dependencies
 
 
@@ -292,7 +328,7 @@ def process_file(directory, source_directory, file):
             chunk.content,
             chunk.start_line,
             chunk.end_line,
-            "code",
+            chunk.type,
         )
         upsert_snippet(snippet)
         snippets.append(snippet)

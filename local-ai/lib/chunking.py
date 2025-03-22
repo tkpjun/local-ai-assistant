@@ -20,11 +20,6 @@ def get_comments(source):
     return comments
 
 
-def get_source_segment(source, node):
-    """Wrapper around ast.get_source_segment for compatibility."""
-    return ast.get_source_segment(source, node)
-
-
 def chunk_python_code(source_text):
     """Chunk Python code using AST and tokenize."""
     chunks: List[Chunk] = []
@@ -44,8 +39,8 @@ def chunk_python_code(source_text):
         preceding_str = "\n".join(
             c[1] for c in sorted(preceding_comments, key=lambda x: x[0])
         )
-        imports_code = "".join(
-            get_source_segment(source_text, node) for node in import_nodes
+        imports_code = "\n".join(
+            ast.get_source_segment(source_text, node) for node in import_nodes
         )
         content = f"{preceding_str}\n{imports_code}" if preceding_str else imports_code
         start_line = first_import.lineno
@@ -59,7 +54,7 @@ def chunk_python_code(source_text):
     previous_end = 0  # Track end line of previous node
 
     for node in non_import_nodes:
-        node_code = get_source_segment(source_text, node)
+        node_code = ast.get_source_segment(source_text, node)
         if not node_code:
             continue  # Skip if code couldn't be retrieved
 
