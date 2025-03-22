@@ -2,9 +2,28 @@ import re
 import ast
 import tokenize
 import io
+import subprocess
+import json
+import os
+import sys
 
 from typing import List
 from lib.types import Chunk
+from lib.log import log
+
+directory = os.path.abspath(sys.argv[1])
+source_directory = sys.argv[2]
+
+
+def read_file(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError as e:
+        log.error(f"Failed to read file {filepath}: {e}")
+    except Exception as e:
+        log.error(f"An error occurred while reading file {filepath}: {e}")
+    return None
 
 
 def get_comments(source):
@@ -20,9 +39,20 @@ def get_comments(source):
     return comments
 
 
-def chunk_python_code(source_text):
+def chunk_python_code(source_file: str):
     """Chunk Python code using AST and tokenize."""
-    chunks: List[Chunk] = []
+    source_text = read_file(source_file)
+    if source_text is None:
+        return
+    chunks: List[Chunk] = [
+        Chunk(
+            None,
+            source_text,
+            1,
+            source_text.count("\n") + 1,
+            "file",
+        )
+    ]
     module = ast.parse(source_text)
     top_level_nodes = module.body
     comments = get_comments(source_text)
@@ -97,134 +127,25 @@ def chunk_python_code(source_text):
 
 
 # Chunker for React and JS/TS files
-def chunk_js_ts_code(text: str) -> List[Chunk]:
-    lines = text.splitlines()
-    chunks: List[Chunk] = []
-    current_chunk: List[str] = []
-    preceding_comments: List[str] = []
-
-    # Regular expression to match top-level function, class, var, let, const declarations
-    func_class_var_interface_type_pattern = re.compile(
-        r"^\s*(export\s+)?(?:async\s+)?(?:function|class|(?:var|let|const)\s+\w+|(interface|type)\s+\w+)"
+def chunk_js_ts_code(source_file: str) -> List[Chunk]:
+    result = subprocess.run(
+        [
+            f"node parsers/typescript/parser.js {source_file} {directory}/{source_directory}"
+        ],
+        capture_output=True,
+        shell=True,
+        text=True,
     )
-
-    import_start_pattern = re.compile(r"^\s*import\b")
-    module_exports_pattern = re.compile(r"^\s*module\.exports\b")
-    in_comment_block = False
-    in_import_block = False
-    found_module_exports = False
-
-    current_chunk_start_line = 0
-    import_lines = []
-
-    for line_number, line in enumerate(lines):
-        stripped_line = line.strip()
-
-        # Check if the line is a comment
-        if line.startswith("//") or (
-            line.strip().startswith("/*") and not line.strip().endswith("*/")
-        ):
-            preceding_comments.append(line)
-            continue
-        elif "/*" in line and "*/" in line:
-            preceding_comments.append(line)
-            continue
-        elif "/*" in line and not line.strip().endswith("*/"):
-            preceding_comments.append(line)
-            in_comment_block = True
-            continue
-        elif line.strip().endswith("*/") and in_comment_block:
-            preceding_comments.append(line)
-            in_comment_block = False
-            continue
-        elif in_comment_block:
-            preceding_comments.append(line)
-            continue
-
-        # Check for import lines
-        if import_start_pattern.match(stripped_line):
-            in_import_block = True
-
-        if in_import_block:
-            import_lines.append((line_number, line))
-            if "} from" in stripped_line:
-                in_import_block = False
-
-        # Check for module.exports
-        if module_exports_pattern.search(stripped_line):
-            found_module_exports = True
-            current_chunk.append(line)
-            continue
-
-        # Check for lines with zero indentation (new top-level block)
-        if stripped_line and not line.startswith(" "):
-            if func_class_var_interface_type_pattern.match(
-                stripped_line
-            ):  # If a new function/class/var/let/const is found
-                if current_chunk:  # Process the previous chunk if it exists
-                    full_chunk = "\n".join(current_chunk).strip()
-
-                    # Extract identifier (function, class, var, let, const name)
-                    match = re.search(
-                        r"\b(function|class|(?:var|let|const|interface|type)\s+)(\w+)",
-                        "\n".join(current_chunk),
-                    )
-                    identifier = match.group(2) if match else None
-
-                    if identifier is not None:
-                        chunks.append(
-                            Chunk(
-                                identifier,
-                                full_chunk,
-                                current_chunk_start_line,
-                                line_number - 1,
-                                "code",
-                            )
-                        )
-
-                    # Reset for the new chunk
-                    current_chunk = []
-                    preceding_comments = []
-
-                current_chunk_start_line = line_number
-
-        current_chunk.append(line)  # Add line to the current chunk
-
-    # Process the last chunk if it exists
-    if found_module_exports:
-        exports_chunk_text = "\n".join(current_chunk).strip()
+    data = json.loads(result.stdout)
+    chunks: List[Chunk] = []
+    for dict in data["chunks"]:
         chunks.append(
             Chunk(
-                "_exports_",
-                exports_chunk_text,
-                current_chunk_start_line,
-                line_number - 1,
-                "exports",
+                dict["name"],
+                dict["content"],
+                dict["start_line"],
+                dict["end_line"],
+                dict["type"],
             )
         )
-    elif current_chunk:
-        full_chunk = "\n".join(current_chunk).strip()
-
-        # Extract identifier (function, class, var, let, const name)
-        match = re.search(
-            r"\b(function|class|(?:var|let|const|interface|type)\s+)(\w+)",
-            "\n".join(current_chunk),
-        )
-        identifier = match.group(2) if match else None
-        if identifier is not None:
-            chunks.append(
-                Chunk(
-                    identifier,
-                    full_chunk,
-                    current_chunk_start_line,
-                    line_number - 1,
-                    "code",
-                )
-            )
-
-    # Handle import lines
-    if import_lines:
-        import_chunk_text = "\n".join([line for _, line in import_lines]).strip()
-        chunks.insert(0, Chunk("_imports_", import_chunk_text, 1, len(import_lines)))
-
     return chunks

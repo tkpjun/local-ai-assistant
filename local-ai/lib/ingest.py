@@ -295,29 +295,12 @@ def process_file(directory, source_directory, file):
         log.info(f"No processor found for file {filepath}. Skipping.")
         return
 
-    text = read_file(filepath)
-    if text is None:
-        return
-
-    chunks = processor(text)
+    chunks = processor(filepath)
 
     log.info(f"Processing snippet: {modulepath}")
-    snippet_id = modulepath
-    snippets: List[Snippet] = [
-        Snippet(
-            snippet_id,
-            filepath,
-            modulepath,
-            None,
-            text,
-            1,
-            text.count("\n") + 1,
-            "file",
-        )
-    ]
-    upsert_snippet(snippets[0])
+    snippets: List[Snippet] = []
     for chunk in chunks:
-        snippet_id = f"{modulepath}.{chunk.name}"
+        snippet_id = f"{modulepath}.{chunk.name}" if chunk.name else modulepath
         log.info(f"Processing snippet: {snippet_id}")
         snippet = Snippet(
             snippet_id,

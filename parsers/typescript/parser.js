@@ -260,7 +260,7 @@ function parseFile(filePath, projectRoot) {
     return {
         chunks: chunks.map((c) => ({
             ...c,
-            content: c.content.replace(/\r?\n/g, '\\n'), // Escape newlines
+            content: c.content.replace(/\r?\n/g, '\n'), // Escape newlines
         })),
         dependencies: uniqueDeps,
     };
