@@ -151,9 +151,8 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     allow_custom_value=True,
                     multiselect=True,
                 )
-                file_options = gr.Radio(
-                    choices=["Snippet", "Dependencies", "Dependents"],
-                    value="Snippet",
+                file_options = gr.CheckboxGroup(
+                    choices=["Dependencies", "Dependents"],
                     label="Include",
                 )
             with gr.Row():
@@ -172,15 +171,21 @@ with gr.Blocks(fill_height=True) as chat_interface:
         added = [
             item for item in file_reference if item not in last_file_reference_value
         ]
-        if len(added) and file_options == "Dependencies":
+        if len(added) and "Dependencies" in file_options:
+            # TODO should get imports for every file
             # TODO should get internal dependencies (same file) recursively
+            # TODO should get types and classes recursively
+            # TODO remove duplicates
+            # TODO order
+            #  - files by how many of the other files reference them, recursively
+            #  - snippets within a file by their line numbers
             dependencies = fetch_dependencies(added[0])
             file_reference.pop()
             file_reference += [
                 dependency.dependency_name for dependency in dependencies
             ]
             file_reference += added
-        if len(added) and file_options == "Dependents":
+        if len(added) and "Dependents" in file_options:
             dependents = fetch_dependents(added[0])
             file_reference += [dependency.snippet_id for dependency in dependents]
         last_file_reference_value = file_reference

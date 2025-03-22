@@ -121,7 +121,7 @@ def fetch_dependencies(snippet_id: str) -> List[Dependency]:
 def fetch_dependents(snippet_id: str) -> List[Dependency]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT snippet_id, d.dependency_name FROM dependencies WHERE dependency_name = ?",
+        "SELECT d.snippet_id, d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.snippet_id WHERE dependency_name = ? AND s.type != 'file'",
         (snippet_id,),
     )
     return [Dependency(*row) for row in cursor.fetchall()]
