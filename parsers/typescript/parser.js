@@ -2,14 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
-// Helper to convert paths to dot notation
-function convertPathToDotNotation(filePath) {
-    return path
-        .dirname(filePath)
-        .split(path.sep)
-        .join('.') + '.' + path.basename(filePath, path.extname(filePath));
-}
-
 function getLineInfo(sourceFile, position) {
     const { line } = sourceFile.getLineAndCharacterOfPosition(position);
     return line + 1; // Convert to 1-based line number
@@ -36,7 +28,7 @@ function createChunk(sourceFile, node, moduleName, modulePath, type, name) {
     };
 }
 
-function extractImports(sourceFile) {
+function extractImports(sourceFile, currentFilePath, projectRoot) {
     const imports = [];
     const importNodes = sourceFile.statements.filter(
         (n) => n.kind === ts.SyntaxKind.ImportDeclaration
@@ -44,9 +36,22 @@ function extractImports(sourceFile) {
 
     importNodes.forEach((node) => {
         const moduleSpecifier = node.moduleSpecifier.text;
-        const modulePath = convertPathToDotNotation(moduleSpecifier);
+        let modulePath = moduleSpecifier
+        if (moduleSpecifier.startsWith('.')) {
+            const currentFileDir = path.dirname(currentFilePath);
+            const absolutePath = path.resolve(currentFileDir, moduleSpecifier);
+            const relativePath = path.relative(projectRoot, absolutePath);
 
-        // Handle default imports
+            // Process the relative path to get module path
+            const parts = moduleSpecifier.startsWith('.') ? relativePath.split(path.sep) : [moduleSpecifier];
+            const lastPart = parts.pop();
+            const fileName = path.parse(lastPart).name; // Remove extension
+            parts.push(fileName);
+            const adjustedPath = parts.join(path.sep);
+            modulePath = adjustedPath.split(path.sep).join('.');
+        }
+
+        // Handle different import types
         if (node.importClause?.name) {
             const name = node.importClause.name.text;
             imports.push({
@@ -56,7 +61,6 @@ function extractImports(sourceFile) {
             });
         }
 
-        // Handle named imports
         if (node.importClause?.namedBindings) {
             const namedImports = node.importClause.namedBindings.elements.map((element) => ({
                 name: element.name.text,
@@ -73,7 +77,6 @@ function extractImports(sourceFile) {
             });
         }
 
-        // Handle namespace imports (import * as ...)
         if (ts.isImportDeclaration(node) && node.importClause?.name) {
             const name = node.importClause.name.text;
             imports.push({
@@ -87,7 +90,7 @@ function extractImports(sourceFile) {
     return imports;
 }
 
-function parseFile(filePath) {
+function parseFile(filePath, projectRoot) {
     const fileContent = fs.readFileSync(filePath, 'utf-8');
     const sourceFile = ts.createSourceFile(
         filePath,
@@ -97,14 +100,15 @@ function parseFile(filePath) {
     );
 
     const moduleName = path.basename(filePath, path.extname(filePath));
+    const currentDir = path.dirname(filePath);
     const modulePath = path
-        .dirname(filePath)
+        .relative(projectRoot, currentDir)
         .split(path.sep)
         .join('.') + '.' + moduleName;
 
     const chunks = [];
     const dependencies = [];
-    const imports = extractImports(sourceFile);
+    const imports = extractImports(sourceFile, filePath, projectRoot);
 
     // File chunk
     const totalLines = sourceFile.getLineStarts().length;
@@ -119,7 +123,7 @@ function parseFile(filePath) {
         type: 'file',
     });
 
-    // Process imports
+    // Process imports chunk
     const importsNodes = sourceFile.statements.filter(
         (n) => n.kind === ts.SyntaxKind.ImportDeclaration
     );
@@ -130,7 +134,7 @@ function parseFile(filePath) {
         const startLine = getLineInfo(sourceFile, importsNodes[0].pos);
         const endLine = getLineInfo(
             sourceFile,
-            importsNodes[importsNodes.length - 1].end - 1
+            importsNodes[importsNodes.length - 1].end
         );
         chunks.push({
             id: `${modulePath}._imports_`,
@@ -163,7 +167,7 @@ function parseFile(filePath) {
                 break;
             case ts.SyntaxKind.VariableStatement:
                 const varDecl = node.declarationList.declarations[0];
-                name = varDecl.name.text || `line${getLineInfo(sourceFile, node.pos)}`;
+                name = varDecl.name.getText() || `line${getLineInfo(sourceFile, node.pos)}`;
                 type = 'variable';
                 break;
             default:
@@ -189,7 +193,7 @@ function parseFile(filePath) {
     const nameToChunk = new Map();
     declarationChunks.forEach((c) => nameToChunk.set(c.name, c));
 
-    // Add dependencies to imports
+    // Dependency to imports chunk
     const importChunkId = `${modulePath}._imports_`;
     chunks.forEach((chunk) => {
         if (chunk.type !== 'imports' && chunk.type !== 'file') {
@@ -200,7 +204,7 @@ function parseFile(filePath) {
         }
     });
 
-    // Find internal dependencies
+    // Internal dependencies
     declarationChunks.forEach((currentChunk) => {
         const contentAST = ts.createSourceFile(
             'temp.ts',
@@ -211,7 +215,6 @@ function parseFile(filePath) {
 
         const identifiers = new Set();
 
-        // Recursively collect all identifiers in the AST
         function collectIdentifiers(node) {
             if (ts.isIdentifier(node)) {
                 identifiers.add(node.text);
@@ -221,7 +224,7 @@ function parseFile(filePath) {
 
         collectIdentifiers(contentAST);
 
-        // Check for local dependencies
+        // Local dependencies
         identifiers.forEach((refName) => {
             const refChunk = nameToChunk.get(refName);
             if (refChunk && refChunk.id !== currentChunk.id) {
@@ -232,7 +235,7 @@ function parseFile(filePath) {
             }
         });
 
-        // Check for imported dependencies
+        // Imported dependencies
         imports.forEach((imp) => {
             if (identifiers.has(imp.name)) {
                 let depName;
@@ -251,8 +254,8 @@ function parseFile(filePath) {
 
     // Remove duplicates
     const uniqueDeps = Array.from(
-        new Set(dependencies.map((d) => JSON.stringify(d)))
-    ).map((d) => JSON.parse(d));
+        new Set(dependencies.map(JSON.stringify))
+    ).map(JSON.parse);
 
     return {
         chunks: chunks.map((c) => ({
@@ -266,11 +269,12 @@ function parseFile(filePath) {
 // CLI entry point
 if (require.main === module) {
     const filePath = process.argv[2];
-    if (!filePath) {
-        console.error('Usage: node parser.js <file.js>');
+    const projectRoot = process.argv[3];
+    if (!filePath || !projectRoot) {
+        console.error('Usage: node parser.js <file.js> <project_root>');
         process.exit(1);
     }
 
-    const result = parseFile(filePath);
+    const result = parseFile(filePath, projectRoot);
     console.log(JSON.stringify(result, null, 2));
 }
