@@ -8,7 +8,7 @@ import os
 import sys
 
 from typing import List
-from lib.types import Chunk
+from lib.types import Snippet, Dependency
 from lib.log import log
 
 directory = os.path.abspath(sys.argv[1])
@@ -39,13 +39,141 @@ def get_comments(source):
     return comments
 
 
-def chunk_python_code(source_file: str):
+def resolve_relative_import(file_path, module, level):
+    """
+    Resolve a relative import (e.g., '.utils') to an absolute path.
+
+    Args:
+        file_path: Path to the current file.
+        module: The module name from the import (e.g., 'utils' for 'from .utils import x').
+        level: The relative import level (e.g., 1 for 'from .utils import x').
+
+    Returns:
+        The resolved module path (e.g., 'my_package.utils').
+    """
+    if level == 0:
+        return module
+
+    # Get the directory of the current file
+    current_dir = os.path.dirname(file_path)
+
+    # Calculate the package path (assuming it's a Python package)
+    # Note: This requires the file to be part of a package with __init__.py files
+    package_path = current_dir.replace(os.path.sep, ".")
+    parent_package = package_path.rsplit(".", level)[0] if level else package_path
+
+    # Combine with the module name
+    if module:
+        return f"{parent_package}.{module}"
+    else:
+        return parent_package
+
+
+def process_python_imports(
+    source_code, file_path, snippets: List[Snippet]
+) -> List[Dependency]:
+    tree = ast.parse(source_code)
+    imports = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if isinstance(node, ast.Import):
+                # Handle 'import x as y' style
+                for alias in node.names:
+                    module_name = alias.name
+                    asname = alias.asname or module_name
+                    imports.append(
+                        {
+                            "module": module_name,
+                            "name": asname,
+                            "type": "import",
+                            "lineno": node.lineno,
+                        }
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                # Handle 'from module import x as y' style
+                module = node.module
+                level = node.level
+                resolved_module = resolve_relative_import(file_path, module, level)
+                for alias in node.names:
+                    imported_name = alias.name
+                    asname = alias.asname or imported_name
+                    imports.append(
+                        {
+                            "module": resolved_module,
+                            "name": asname,
+                            "type": "from_import",
+                            "lineno": node.lineno,
+                        }
+                    )
+
+    dependencies: List[Dependency] = []
+
+    for snippet in snippets:
+        if snippet.type == "imports":
+            continue
+        content = snippet.content
+        for imp in imports:
+            if imp["name"] in content:
+                dependency_name = (
+                    imp["name"]
+                    if imp["module"] == imp["name"]
+                    else f"{imp['module']}.{imp['name']}"
+                )
+                dependencies.append(Dependency(snippet.id, dependency_name))
+
+    # Process internal dependencies between chunks
+    snippet_names = {s.name: s.id for s in snippets if s.type != "file"}
+
+    for current_snippet in snippets:
+        if current_snippet.type == "imports":
+            continue
+        current_id = current_snippet.id
+        content = current_snippet.content
+        tree = ast.parse(content)
+        used_names = set()
+
+        # Collect names used in function calls
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    used_names.add(func.id)
+                elif isinstance(func, ast.Attribute):
+                    # Handle cases like obj.method() by checking the attribute's value
+                    value = func.value
+                    if isinstance(value, ast.Name):
+                        used_names.add(f"{value.id}.{func.attr}")
+
+        # Check for dependencies on other chunks
+        for name in used_names:
+            if name in snippet_names:
+                dependency_id = snippet_names[name]
+                if dependency_id != current_id:
+                    dependencies.append(Dependency(current_id, dependency_id))
+        dependencies.append(
+            Dependency(current_id, f"{current_snippet.module}._imports_")
+        )
+
+    return dependencies
+
+
+def chunk_python_code(source_file: str) -> (List[Snippet], List[Dependency]):
     """Chunk Python code using AST and tokenize."""
+    modulepath = (
+        source_file.removeprefix(f"{directory}/")
+        .removeprefix(f"{source_directory}/")
+        .replace("/", ".")
+        .removesuffix(".py")
+    )
     source_text = read_file(source_file)
     if source_text is None:
         return
-    chunks: List[Chunk] = [
-        Chunk(
+    snippets: List[Snippet] = [
+        Snippet(
+            modulepath,
+            source_file,
+            modulepath,
             None,
             source_text,
             1,
@@ -75,7 +203,18 @@ def chunk_python_code(source_file: str):
         content = f"{preceding_str}\n{imports_code}" if preceding_str else imports_code
         start_line = first_import.lineno
         end_line = import_nodes[-1].lineno + len(imports_code.split("\n")) - 1
-        chunks.append(Chunk("_imports_", content, start_line, end_line, "imports"))
+        snippets.append(
+            Snippet(
+                f"{modulepath}._imports_",
+                source_file,
+                modulepath,
+                "_imports_",
+                content,
+                start_line,
+                end_line,
+                "imports",
+            )
+        )
 
     # Process non-import nodes
     non_import_nodes = [
@@ -120,14 +259,26 @@ def chunk_python_code(source_file: str):
             type = "other"
 
         content = f"{preceding_str}\n{node_code}" if preceding_str else node_code
-        chunks.append(Chunk(name, content, start_line, end_line, type))
+        snippets.append(
+            Snippet(
+                f"{modulepath}.{name}",
+                source_file,
+                modulepath,
+                name,
+                content,
+                start_line,
+                end_line,
+                type,
+            )
+        )
         previous_end = end_line
 
-    return chunks
+    dependencies = process_python_imports(source_text, source_file, snippets)
+    return (snippets, dependencies)
 
 
 # Chunker for React and JS/TS files
-def chunk_js_ts_code(source_file: str) -> List[Chunk]:
+def chunk_js_ts_code(source_file: str) -> (List[Snippet], List[Dependency]):
     result = subprocess.run(
         [
             f"node parsers/typescript/parser.js {source_file} {directory}/{source_directory}"
@@ -137,10 +288,14 @@ def chunk_js_ts_code(source_file: str) -> List[Chunk]:
         text=True,
     )
     data = json.loads(result.stdout)
-    chunks: List[Chunk] = []
+    snippets: List[Snippet] = []
+    dependencies: List[Dependency] = []
     for dict in data["chunks"]:
-        chunks.append(
-            Chunk(
+        snippets.append(
+            Snippet(
+                dict["id"],
+                dict["source"],
+                dict["module"],
                 dict["name"],
                 dict["content"],
                 dict["start_line"],
@@ -148,4 +303,7 @@ def chunk_js_ts_code(source_file: str) -> List[Chunk]:
                 dict["type"],
             )
         )
-    return chunks
+    for dict in data["dependencies"]:
+        dependencies.append(Dependency(dict["snippet_id"], dict["dependency_name"]))
+
+    return (snippets, dependencies)

@@ -12,15 +12,6 @@ class Assistant:
 
 
 @dataclass
-class Chunk:
-    name: str | None
-    content: str
-    start_line: int
-    end_line: int
-    type: str
-
-
-@dataclass
 class Snippet:
     id: str
     source: str
