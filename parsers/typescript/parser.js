@@ -2,6 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
+// Helper to convert paths to dot notation
+function convertPathToDotNotation(filePath) {
+    return path
+        .dirname(filePath)
+        .split(path.sep)
+        .join('.') + '.' + path.basename(filePath, path.extname(filePath));
+}
+
 function getLineInfo(sourceFile, position) {
     const { line } = sourceFile.getLineAndCharacterOfPosition(position);
     return line + 1; // Convert to 1-based line number
@@ -28,7 +36,58 @@ function createChunk(sourceFile, node, moduleName, modulePath, type, name) {
     };
 }
 
-async function parseFile(filePath) {
+function extractImports(sourceFile) {
+    const imports = [];
+    const importNodes = sourceFile.statements.filter(
+        (n) => n.kind === ts.SyntaxKind.ImportDeclaration
+    );
+
+    importNodes.forEach((node) => {
+        const moduleSpecifier = node.moduleSpecifier.text;
+        const modulePath = convertPathToDotNotation(moduleSpecifier);
+
+        // Handle default imports
+        if (node.importClause?.name) {
+            const name = node.importClause.name.text;
+            imports.push({
+                name: name,
+                module: modulePath,
+                type: 'default',
+            });
+        }
+
+        // Handle named imports
+        if (node.importClause?.namedBindings) {
+            const namedImports = node.importClause.namedBindings.elements.map((element) => ({
+                name: element.name.text,
+                as: element.propertyName?.text || element.name.text,
+            }));
+
+            namedImports.forEach((imp) => {
+                imports.push({
+                    name: imp.as,
+                    originalName: imp.name,
+                    module: modulePath,
+                    type: 'named',
+                });
+            });
+        }
+
+        // Handle namespace imports (import * as ...)
+        if (ts.isImportDeclaration(node) && node.importClause?.name) {
+            const name = node.importClause.name.text;
+            imports.push({
+                name: name,
+                module: modulePath,
+                type: 'namespace',
+            });
+        }
+    });
+
+    return imports;
+}
+
+function parseFile(filePath) {
     const fileContent = fs.readFileSync(filePath, 'utf-8');
     const sourceFile = ts.createSourceFile(
         filePath,
@@ -45,6 +104,7 @@ async function parseFile(filePath) {
 
     const chunks = [];
     const dependencies = [];
+    const imports = extractImports(sourceFile);
 
     // File chunk
     const totalLines = sourceFile.getLineStarts().length;
@@ -141,15 +201,6 @@ async function parseFile(filePath) {
     });
 
     // Find internal dependencies
-    function findIdentifiers(node, callback) {
-        ts.forEachChild(node, child => {
-            if (ts.isIdentifier(child)) {
-                callback(child);
-            }
-            findIdentifiers(child, callback); // Recurse deeper
-        });
-    }
-
     declarationChunks.forEach((currentChunk) => {
         const contentAST = ts.createSourceFile(
             'temp.ts',
@@ -158,20 +209,20 @@ async function parseFile(filePath) {
             true
         );
 
-        // Helper function to recursively find identifiers
-        const identifiers = [];
-        function traverse(node) {
+        const identifiers = new Set();
+
+        // Recursively collect all identifiers in the AST
+        function collectIdentifiers(node) {
             if (ts.isIdentifier(node)) {
-                identifiers.push(node.text);
+                identifiers.add(node.text);
             }
-            ts.forEachChild(node, traverse);
+            ts.forEachChild(node, collectIdentifiers);
         }
-        traverse(contentAST);
 
-        // Track unique identifier references
-        const uniqueIdentifiers = new Set(identifiers);
+        collectIdentifiers(contentAST);
 
-        uniqueIdentifiers.forEach(refName => {
+        // Check for local dependencies
+        identifiers.forEach((refName) => {
             const refChunk = nameToChunk.get(refName);
             if (refChunk && refChunk.id !== currentChunk.id) {
                 dependencies.push({
@@ -180,9 +231,25 @@ async function parseFile(filePath) {
                 });
             }
         });
+
+        // Check for imported dependencies
+        imports.forEach((imp) => {
+            if (identifiers.has(imp.name)) {
+                let depName;
+                if (imp.type === 'named') {
+                    depName = `${imp.module}.${imp.originalName}`;
+                } else {
+                    depName = `${imp.module}.${imp.name}`;
+                }
+                dependencies.push({
+                    snippet_id: currentChunk.id,
+                    dependency_name: depName,
+                });
+            }
+        });
     });
 
-    // Remove duplicate dependencies
+    // Remove duplicates
     const uniqueDeps = Array.from(
         new Set(dependencies.map((d) => JSON.stringify(d)))
     ).map((d) => JSON.parse(d));
@@ -204,10 +271,6 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    parseFile(filePath)
-        .then((result) => console.log(JSON.stringify(result, null, 2)))
-        .catch((err) => {
-            console.error('Parsing failed:', err);
-            process.exit(1);
-        });
+    const result = parseFile(filePath);
+    console.log(JSON.stringify(result, null, 2));
 }
