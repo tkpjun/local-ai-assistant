@@ -91,15 +91,17 @@ def build_prompt(
         context_prompt += "```"
 
     system_prompt_with_context = get_assistant_prompt()
-    if context_prompt != "":
-        system_prompt_with_context += f"\n\n{context_prompt}"
-    system_tokens = len(tokenizer.encode(text=system_prompt_with_context))
+    system_tokens = len(tokenizer.encode(text=system_prompt_with_context)) + len(
+        tokenizer.encode(text=context_prompt)
+    )
 
     chat_messages = []
     tokens_used = 0
     if user_message:
         chat_messages.append(ChatMessage("user", user_message, metadata=dict()))
         tokens_used += len(tokenizer.encode(user_message))
+    if context_prompt:
+        chat_messages.append(ChatMessage("system", context_prompt, metadata=dict()))
     for message in reversed(history):
         message_length = len(tokenizer.encode(message.content))
         if (
@@ -139,7 +141,12 @@ def build_prompt_code(
         selected_assistant,
         options,
     )
-    system_prompt_len = len(tokenizer.encode(prompt["messages"][0].content))
+    system_message_tokens = [
+        len(tokenizer.encode(message.content))
+        for message in prompt["messages"]
+        if message.role == "system"
+    ]
+    system_prompt_len = sum(system_message_tokens)
     markdown = f"# Assistant: {assistant.name}\n"
     markdown += f"## Model: {assistant.llm}\n"
     markdown += f"## Context limit: {assistant.context_limit} + {system_prompt_len}\n"
