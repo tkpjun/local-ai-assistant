@@ -109,13 +109,13 @@ def get_all_dependencies() -> List[Dependency]:
     return [Dependency(*row) for row in cursor.fetchall()]
 
 
-def fetch_dependencies(snippet_id: str) -> List[Dependency]:
+def fetch_dependencies(snippet_id: str) -> List[Snippet]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT d.snippet_id, d.dependency_name FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?",
+        "SELECT s.id, s.source, s.module, s.name, s.content, s.start_line, s.end_line, s.type FROM dependencies d INNER JOIN snippets s ON s.id = d.dependency_name WHERE d.snippet_id = ?",
         (snippet_id,),
     )
-    return [Dependency(*row) for row in cursor.fetchall()]
+    return [Snippet(*row) for row in cursor.fetchall()]
 
 
 def fetch_dependents(snippet_id: str) -> List[Dependency]:

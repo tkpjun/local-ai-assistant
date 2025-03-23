@@ -14,6 +14,7 @@ from lib.db import (
     fetch_ui_state,
     upsert_ui_state,
     upsert_assistant,
+    fetch_snippet_by_id,
 )
 from lib.ingest import ingest_codebase, start_watcher
 from lib.chat import (
@@ -27,7 +28,7 @@ from lib.assistants import (
     get_all_assistants,
     add_assistant,
 )
-from lib.types import UIState, Assistant
+from lib.types import UIState, Assistant, Snippet
 
 load_dotenv(override=False)
 
@@ -47,6 +48,48 @@ initial_ui_state = fetch_ui_state() or UIState("Coder")
 new_name = gr.Textbox(
     show_label=False, placeholder="New assistant name", submit_btn="Add new assistant"
 )
+
+
+def on_snippet_input(file_reference, file_options):
+    global last_file_reference_value
+    added = [item for item in file_reference if item not in last_file_reference_value]
+
+    if len(added) and "Dependencies" in file_options:
+        added_snippet = fetch_snippet_by_id(added[0])
+        all_deps = get_all_dependencies(added_snippet)
+        file_reference += list(all_deps)
+
+    elif len(added) and "Dependents" in file_options:
+        dependents = fetch_dependents(added[0])
+        file_reference += [d.snippet_id for d in dependents]
+
+    # Deduplicate and sort alphabetically
+    deduplicated = list(set(file_reference))
+    deduplicated.sort()  # Alphabetical order for the UI
+
+    # Update the reference list
+    file_reference.clear()
+    file_reference += deduplicated
+    last_file_reference_value = file_reference
+
+    return gr.update(value=file_reference)
+
+
+def get_all_dependencies(target: Snippet):
+    visited = set()
+    stack = [target]
+    while stack:
+        snippet = stack.pop()
+        if snippet.id not in visited and (
+            snippet.source == target.source
+            or snippet.type in ["imports", "class", "type"]
+        ):
+            visited.add(snippet.id)
+            dependencies = fetch_dependencies(snippet.id)
+            for dependency in dependencies:
+                stack.append(dependency)
+    return visited
+
 
 # Create a Gradio chat interface with streaming
 with gr.Blocks(fill_height=True) as chat_interface:
@@ -165,31 +208,6 @@ with gr.Blocks(fill_height=True) as chat_interface:
                     variant="stop",
                 )
                 ingest_button = gr.Button("Ingest code", size="md")
-
-    def on_snippet_input(file_reference, file_options):
-        global last_file_reference_value
-        added = [
-            item for item in file_reference if item not in last_file_reference_value
-        ]
-        if len(added) and "Dependencies" in file_options:
-            # TODO should get the _imports_ snippet for every file
-            # TODO should get internal dependencies (same file) recursively
-            # TODO should get type and class dependencies recursively
-            dependencies = fetch_dependencies(added[0])
-            file_reference.pop()
-            file_reference += [
-                dependency.dependency_name for dependency in dependencies
-            ]
-            file_reference += added
-        if len(added) and "Dependents" in file_options:
-            dependents = fetch_dependents(added[0])
-            file_reference += [dependency.snippet_id for dependency in dependents]
-        deduplicated_reference = list(set(file_reference))
-        file_reference.clear()
-        file_reference += deduplicated_reference
-        file_reference.sort()
-        last_file_reference_value = file_reference
-        return gr.update(value=file_reference)
 
     file_reference.input(
         fn=on_snippet_input,

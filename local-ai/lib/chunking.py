@@ -158,6 +158,8 @@ def process_python_imports(
     return dependencies
 
 
+# TODO fix bug: decorators aren't included in snippet
+# TODO another bug: dependencies on variables aren't tracked
 def chunk_python_code(source_file: str) -> (List[Snippet], List[Dependency]):
     """Chunk Python code using AST and tokenize."""
     modulepath = (
