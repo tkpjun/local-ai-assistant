@@ -90,9 +90,11 @@ def build_prompt(
             context_prompt += f"{snippet.content}\n"
         context_prompt += "```"
 
+    user_prompt_len = len(tokenizer.encode(user_message))
+    context_prompt_len = len(tokenizer.encode(context_prompt))
     system_prompt_with_context = get_assistant_prompt()
-    system_tokens = len(tokenizer.encode(text=system_prompt_with_context)) + len(
-        tokenizer.encode(text=context_prompt)
+    system_tokens = (
+        len(tokenizer.encode(text=system_prompt_with_context)) + context_prompt_len
     )
 
     chat_messages = []
@@ -119,7 +121,8 @@ def build_prompt(
         "messages": chat_messages,
         "options": {
             "num_ctx": max(
-                system_tokens + assistant.context_limit, assistant.response_size_limit
+                system_tokens + assistant.context_limit,
+                assistant.response_size_limit + context_prompt_len + user_prompt_len,
             ),
             "num_predict": assistant.response_size_limit,
         },
