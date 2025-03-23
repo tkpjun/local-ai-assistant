@@ -8,6 +8,7 @@ from lib.db import (
     fetch_snippet_by_id,
     fetch_assistant_by_name,
     upsert_message,
+    fetch_snippet_dependencies,
 )
 from lib.context import get_git_tracked_files, get_project_dependencies
 from lib.assistants import get_assistant_prompt
@@ -16,6 +17,69 @@ from dataclasses import asdict
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 directory = os.path.abspath(sys.argv[1])
+
+
+def sort_snippets(context_snippets):
+    files = list({s.source for s in context_snippets})
+    if not files:
+        sorted_files = []
+    else:
+        # Build adjacency list and in_degree for topological sort
+        adj = {file: [] for file in files}
+        in_degree = {file: 0 for file in files}
+
+        snippets_by_id = {snippet.id: snippet for snippet in context_snippets}
+        dependencies = fetch_snippet_dependencies(context_snippets)
+
+        # Process dependencies between files
+        for dependency in dependencies:
+            from_snippet = snippets_by_id[dependency.snippet_id]
+            dep_snippet = snippets_by_id.get(dependency.dependency_name)
+            if not dep_snippet:
+                continue
+            from_file = from_snippet.source
+            dep_file = dep_snippet.source
+
+            if from_file != dep_file:
+                # Add edge from dependency file to dependent file (dep_file → from_file)
+                adj[dep_file].append(from_file)
+                in_degree[from_file] += 1
+
+        # Perform Kahn's algorithm for topological sort
+        from collections import deque
+
+        queue = deque()
+        for file in files:
+            if in_degree[file] == 0:
+                queue.append(file)
+
+        sorted_files = []
+        temp_in_degree = in_degree.copy()
+        while queue:
+            u = queue.popleft()
+            sorted_files.append(u)
+            for v in adj[u]:
+                temp_in_degree[v] -= 1
+                if temp_in_degree[v] == 0:
+                    queue.append(v)
+
+        # Handle cycles by appending remaining files alphabetically
+        if len(sorted_files) < len(files):
+            remaining = [f for f in files if f not in sorted_files]
+            remaining_sorted = sorted(remaining)
+            sorted_files += remaining_sorted
+
+    # Create priority mapping
+    file_priority = {f: idx for idx, f in enumerate(sorted_files)}
+
+    # Sort snippets by file priority and line number
+    context_snippets.sort(
+        key=lambda s: (
+            file_priority[s.source],  # File priority from dependency graph
+            s.start_line,  # Line number within file
+        )
+    )
+    return context_snippets
 
 
 def build_prompt(
@@ -53,28 +117,12 @@ def build_prompt(
                 context_prompt += f"  - {name}\n"
 
     context_snippets = []
-    file_order = []
 
-    for snippet_id in file_reference:
+    for snippet_id in set(file_reference):
         context_snippets.append(fetch_snippet_by_id(snippet_id))
 
     if context_snippets:
-        for snippet in context_snippets:
-            if file_order.count(snippet.source) > 0:
-                file_order.remove(snippet.source)
-            file_order.append(snippet.source)
-
-        seen = set()
-        context_snippets = [
-            snippet
-            for snippet in context_snippets
-            if (snippet.id) not in seen and not seen.add(snippet.id)
-        ]
-        context_snippets = sorted(
-            context_snippets,
-            key=lambda snippet: (file_order.index(snippet.source), snippet.id),
-        )
-
+        context_snippets = sort_snippets(context_snippets)
         context_prompt += (
             f"\n# Relevant snippets of project code denoted in Markdown:\n\n"
         )

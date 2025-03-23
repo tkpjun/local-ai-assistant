@@ -119,7 +119,7 @@ with gr.Blocks(fill_height=True) as chat_interface:
                             )
 
                 new_name.render()
-                # TODO update assistant selector
+                # TODO update assistant selector when new assistant is added
                 new_name.submit(add_assistant, inputs=[new_name], outputs=None)
             with gr.Tab(label="Prompt (JSON)"):
                 prompt_box = gr.Json()
@@ -172,13 +172,9 @@ with gr.Blocks(fill_height=True) as chat_interface:
             item for item in file_reference if item not in last_file_reference_value
         ]
         if len(added) and "Dependencies" in file_options:
-            # TODO should get imports for every file
+            # TODO should get the _imports_ snippet for every file
             # TODO should get internal dependencies (same file) recursively
-            # TODO should get types and classes recursively
-            # TODO remove duplicates
-            # TODO order
-            #  - files by how many of the other files reference them, recursively
-            #  - snippets within a file by their line numbers
+            # TODO should get type and class dependencies recursively
             dependencies = fetch_dependencies(added[0])
             file_reference.pop()
             file_reference += [
@@ -188,6 +184,10 @@ with gr.Blocks(fill_height=True) as chat_interface:
         if len(added) and "Dependents" in file_options:
             dependents = fetch_dependents(added[0])
             file_reference += [dependency.snippet_id for dependency in dependents]
+        deduplicated_reference = list(set(file_reference))
+        file_reference.clear()
+        file_reference += deduplicated_reference
+        file_reference.sort()
         last_file_reference_value = file_reference
         return gr.update(value=file_reference)
 

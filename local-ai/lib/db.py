@@ -243,3 +243,17 @@ def fetch_ui_state() -> Optional[UIState]:
             selected_snippets=json.loads(state[2]),
         )
     return None
+
+
+def fetch_snippet_dependencies(snippets: List[Snippet]) -> List[Dependency]:
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+            SELECT snippet_id, dependency_name
+            FROM dependencies
+            WHERE snippet_id IN (%s)
+        """
+        % ",".join("?" for _ in snippets),
+        [s.id for s in snippets],
+    )
+    return [Dependency(*row) for row in cursor.fetchall()]
