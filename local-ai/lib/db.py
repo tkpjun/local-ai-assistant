@@ -5,9 +5,8 @@ from lib.types import Assistant, Snippet, Dependency, UIState
 from gradio import ChatMessage
 from dataclasses import astuple
 
-sqlite3.threadsafety = 3
 # Connect to SQLite database (or create it if it doesn't exist)
-conn = sqlite3.connect("codebase.db", check_same_thread=False)
+conn = sqlite3.connect("codebase.db", check_same_thread=False, isolation_level=None)
 
 
 def init_sqlite_tables():
@@ -77,7 +76,6 @@ def cleanup_data(directory: str):
 
 def upsert_snippet(snippet: Snippet):
     cursor = conn.cursor()
-    # snippet_id = f"{modulepath}{"." if identifier is not None else ""}{identifier if identifier is not None else ""}"
     cursor.execute(
         """
                     INSERT OR REPLACE INTO snippets (id, source, module, name, content, start_line, end_line, type)
@@ -85,6 +83,7 @@ def upsert_snippet(snippet: Snippet):
                 """,
         astuple(snippet),
     )
+    conn.commit()
 
 
 def upsert_dependency(dependency: Dependency):
@@ -93,20 +92,7 @@ def upsert_dependency(dependency: Dependency):
         "INSERT OR REPLACE INTO dependencies (snippet_id, dependency_name) VALUES (?, ?)",
         astuple(dependency),
     )
-
-
-def get_all_snippets() -> List[Snippet]:
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, source, module, name, content, start_line, end_line, type FROM snippets WHERE type = 'code'"
-    )
-    return [Snippet(*row) for row in cursor.fetchall()]
-
-
-def get_all_dependencies() -> List[Dependency]:
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, snippet_id, dependency_name FROM dependencies")
-    return [Dependency(*row) for row in cursor.fetchall()]
+    conn.commit()
 
 
 def fetch_dependencies(snippet_id: str) -> List[Snippet]:
@@ -169,11 +155,13 @@ def upsert_message(message: ChatMessage, ordinal: int):
         "INSERT OR REPLACE INTO messages (ordinal, role, content, metadata) VALUES (?, ?, ?, ?)",
         (ordinal, message.role, message.content, json.dumps(message.metadata)),
     )
+    conn.commit()
 
 
 def clear_chat_history():
     cursor = conn.cursor()
     cursor.execute("DELETE FROM messages")
+    conn.commit()
 
 
 def upsert_assistant(assistant: Assistant):
@@ -216,6 +204,7 @@ def fetch_assistant_by_name(name: str) -> Optional[Assistant]:
 
 def upsert_ui_state(ui_state: UIState):
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM ui_state")
     cursor.execute(
         """
             INSERT OR REPLACE INTO ui_state (assistant_name, extra_content_options, selected_snippets)

@@ -1,4 +1,3 @@
-import re
 import ast
 import tokenize
 import io
@@ -135,15 +134,21 @@ def process_python_imports(
 
         # Collect names used in function calls
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
+            if isinstance(node, ast.Name):
+                if isinstance(node.ctx, ast.Load):
+                    used_names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                value = node.value
+                if isinstance(value, ast.Name):
+                    used_names.add(f"{value.id}.{node.attr}")
+            elif isinstance(node, ast.Call):
                 func = node.func
                 if isinstance(func, ast.Name):
                     used_names.add(func.id)
                 elif isinstance(func, ast.Attribute):
-                    # Handle cases like obj.method() by checking the attribute's value
-                    value = func.value
-                    if isinstance(value, ast.Name):
-                        used_names.add(f"{value.id}.{func.attr}")
+                    value_attr = func.value
+                    if isinstance(value_attr, ast.Name):
+                        used_names.add(f"{value_attr.id}.{func.attr}")
 
         # Check for dependencies on other chunks
         for name in used_names:
@@ -158,8 +163,6 @@ def process_python_imports(
     return dependencies
 
 
-# TODO fix bug: decorators aren't included in snippet
-# TODO another bug: dependencies on variables aren't tracked
 def chunk_python_code(source_file: str) -> (List[Snippet], List[Dependency]):
     """Chunk Python code using AST and tokenize."""
     modulepath = (
@@ -225,11 +228,21 @@ def chunk_python_code(source_file: str) -> (List[Snippet], List[Dependency]):
     previous_end = 0  # Track end line of previous node
 
     for node in non_import_nodes:
-        node_code = ast.get_source_segment(source_text, node)
-        if not node_code:
-            continue  # Skip if code couldn't be retrieved
-
+        # Handle decorators inclusion
         start_line = node.lineno
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.decorator_list:
+            first_decorator = node.decorator_list[0]
+            start_line = first_decorator.lineno
+
+        # Get node code with decorators included
+        node_code = ast.get_source_segment(source_text, node)
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.decorator_list:
+            decorator_code = []
+            for d in node.decorator_list:
+                decorator_code.append(ast.get_source_segment(source_text, d))
+            node_code = "\n".join(decorator_code) + "\n" + node_code
+
+        # Calculate end_line
         lines = node_code.count("\n") + 1
         end_line = start_line + lines - 1
 

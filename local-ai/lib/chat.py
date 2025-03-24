@@ -155,11 +155,14 @@ def build_prompt(
     for message in reversed(history):
         message_length = len(tokenizer.encode(message.content))
         if (
-            tokens_used + message_length < assistant.context_limit
+            tokens_used + message_length <= assistant.context_limit
             and message.metadata["title"] != "Thinking"
         ):
             chat_messages.append(message)
             tokens_used += message_length
+        elif tokens_used + message_length > assistant.context_limit:
+            break
+
     chat_messages.append(
         ChatMessage("system", system_prompt_with_context, metadata=dict())
     )
