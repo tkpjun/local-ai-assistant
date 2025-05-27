@@ -10,11 +10,12 @@ ollama run [model]
 You have to install at least one model before the app will work.
 You can escape with the command `/bye`, and after that the app will be able to run the model whenever.
 
-Example models:
-- qwen2.5-coder:14b (basic, fast, lower memory consumption)
-- qwen2.5-coder:32b (basic, medium speed, higher memory consumption)
-- deepseek-R1:14b (chain-of-thought, medium speed, lower memory consumption)
-- deepseek-R1:32b (chain-of-thought, slow, higher memory consumption)
+Example models that run at reasonable speed on laptops:
+- devstral:24b (Coding-oriented, not as good for chatting.)
+- qwen2.5-coder:32b (Similar idea to devstral but older and heavier.)
+- gemma3:27b (Similar footprint to devstral, but generalist chatting model)
+- qwen3:14b (Also generalist, but reasoning. Lower memory need, less knowledge, comparable speed.)
+- qwen3:30b-a3b (Similar to qwen3:14b. Faster in exchange for more memory.)
 
 # Set up and run the project
 First, navigate to project root.
