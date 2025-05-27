@@ -82,7 +82,7 @@ def get_all_dependencies(target: Snippet):
         snippet = stack.pop()
         if snippet.id not in visited and (
             snippet.source == target.source
-            or snippet.type in ["imports", "class", "type"]
+            or snippet.type in ["type", "interface", "enum"]
         ):
             visited.add(snippet.id)
             dependencies = fetch_dependencies(snippet.id)

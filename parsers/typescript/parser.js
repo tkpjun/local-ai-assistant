@@ -61,7 +61,7 @@ function extractImports(sourceFile, currentFilePath, projectRoot) {
             });
         }
 
-        if (node.importClause?.namedBindings) {
+        if (node.importClause?.namedBindings?.elements) {
             const namedImports = node.importClause.namedBindings.elements.map((element) => ({
                 name: element.name.text,
                 as: element.propertyName?.text || element.name.text,
@@ -165,6 +165,18 @@ function parseFile(filePath, projectRoot) {
                 name = node.name?.text || `line${getLineInfo(sourceFile, node.pos)}`;
                 type = 'class';
                 break;
+            case ts.SyntaxKind.TypeAliasDeclaration:
+                name = node.name?.text || `line${getLineInfo(sourceFile, node.pos)}`;
+                type = 'type';
+                break;
+            case ts.SyntaxKind.InterfaceDeclaration:
+                name = node.name?.text || `line${getLineInfo(sourceFile, node.pos)}`;
+                type = 'interface';
+                break;
+            case ts.SyntaxKind.EnumDeclaration:
+                name = node.name?.text || `line${getLineInfo(sourceFile, node.pos)}`;
+                type = 'enum';
+                break;
             case ts.SyntaxKind.VariableStatement:
                 const varDecl = node.declarationList.declarations[0];
                 name = varDecl.name.getText() || `line${getLineInfo(sourceFile, node.pos)}`;
@@ -248,6 +260,10 @@ function parseFile(filePath, projectRoot) {
                     snippet_id: currentChunk.id,
                     dependency_name: depName,
                 });
+                dependencies.push({
+                    snippet_id: modulePath,
+                    dependency_name: depName,
+                })
             }
         });
     });
